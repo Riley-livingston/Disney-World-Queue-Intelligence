@@ -73,6 +73,20 @@ Official TouringPlans files are updated monthly on the [Crowd Calendar DataSets]
 
 Tests: `pytest -q`
 
+## Live app (Streamlit Community Cloud)
+
+GitHub Pages cannot host this app. Streamlit Community Cloud can.
+
+1. Confirm the GitHub repo is **public**: [Riley-livingston/Disney-World-Queue-Intelligence](https://github.com/Riley-livingston/Disney-World-Queue-Intelligence).
+2. Sign in at [share.streamlit.io](https://share.streamlit.io) with GitHub.
+3. **Create app** and set:
+   - Repository: `Disney-World-Queue-Intelligence`
+   - Branch: `main`
+   - Main file path: `app/streamlit_app.py`
+4. Deploy. The first build takes a few minutes. After that, pushes to `main` redeploy automatically.
+
+The public URL looks like `https://<app-name>.streamlit.app`. Free apps can sleep when idle; the first visit after that is slow.
+
 ## Project layout
 
 ```
