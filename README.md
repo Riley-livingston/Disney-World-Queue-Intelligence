@@ -1,27 +1,27 @@
-# WDW Queue Intelligence
+# Disney World Queue Intelligence
 
 An independent guest-operations analytics project for **Walt Disney World** in Orlando, Florida.
 
-The question is not “what is the wait at Space Mountain.” It is: *if I were briefing a Parks data science or guest-experience team, how do waits behave, where do posted times diverge from what guests actually stand, and what should this wait be right now?*
+The question is not “what is the wait at Space Mountain.” It is: *if I were on a park operations radio this hour, what is down, what is running hot versus a typical day, and where is the posted wait lying to guests?*
 
 This is a portfolio project. It is **not affiliated with, endorsed by, or connected to The Walt Disney Company.**
 
 ## Problem
 
-Disney parks run on queueing. Capacity, Lightning Lane, early entry, and the posted wait on a sign are all guest-experience decisions. Most public dashboards stop at a live number. Operations work starts one step later:
+Disney parks run on queueing. Capacity, Lightning Lane, early entry, and the posted wait on a sign are all guest-experience decisions. Most public dashboards stop at a live number. A shift lead needs the next step:
 
-1. **Posted vs actual wait** — the sign is a communication tool, not a stopwatch. How large is the buffer, and when does it grow?
-2. **Shape of a park day** — rope drop, midday peak, evening. Early entry shifts the curve.
-3. **Now vs expected** — given hour, weekday, month, and holiday, is this headliner running hot or cold?
+1. **Mission control** — resort-area radar and forecast, downs, severe standby, and headliners running hot vs this hour’s baseline, with a suggested next step.
+2. **Park day plan** — live inventory plus typical posted-wait shape with today’s live wait overlaid, for staffing and crowd-flow. Click a ride to load its curve.
+3. **Posted-wait integrity** — where the sign overshoots what guests actually stand (communication buffer, not just a queueing error).
 
 ## Data
 
 | Layer | Source | What it gives you |
 | --- | --- | --- |
-| Historical | [TouringPlans.com wait-time datasets](https://touringplans.com/walt-disney-world/crowd-calendar#DataSets) (~14 headliners, posted *and* actual waits, park-day metadata) | Years of structure: hour-of-day, season, Extra Magic Hours / early entry, weather |
+| Historical | [TouringPlans.com wait-time datasets](https://touringplans.com/walt-disney-world/crowd-calendar#DataSets) (13 headliners, posted *and* actual waits, park-day metadata) | Years of structure: hour-of-day, season, Extra Magic Hours / early entry, weather |
 | Live | [ThemeParks.wiki API](https://api.themeparks.wiki/) `GET /v1/entity/{parkId}/live` and `/schedule` | All attractions and shows at Magic Kingdom, EPCOT, Hollywood Studios, and Animal Kingdom: standby, downs, Lightning Lane / return times, operating hours |
 
-The two layers are joined **only** for the mapped headliners in [`src/wdw/attraction_map.yml`](src/wdw/attraction_map.yml). The live board is park-wide. Historical models stay on the TouringPlans attraction set. Splash Mountain maps to Tiana's Bayou Adventure; DINOSAUR has no live counterpart.
+The two layers are joined **only** for the mapped headliners in [`src/wdw/attraction_map.yml`](src/wdw/attraction_map.yml). The live board is park-wide. Historical models stay on the TouringPlans attraction set. Splash Mountain maps to Tiana's Bayou Adventure.
 
 Live fetches respect ThemeParks.wiki’s cache: refresh no more than once every five minutes. **Powered by ThemeParks.wiki.**
 

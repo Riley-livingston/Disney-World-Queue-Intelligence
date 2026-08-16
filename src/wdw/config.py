@@ -1,4 +1,4 @@
-"""Paths, park IDs, and API settings for WDW Queue Intelligence."""
+"""Paths, park IDs, and API settings for Disney World Queue Intelligence."""
 
 from __future__ import annotations
 
@@ -32,6 +32,17 @@ ATTRACTION_MAP_PATH = PACKAGE_DIR / "attraction_map.yml"
 THEMEPARKS_BASE_URL = "https://api.themeparks.wiki/v1"
 WDW_DESTINATION_ID = "e957da41-3552-4cf6-b636-5babc5cbc4e5"
 TIMEZONE = "America/New_York"
+
+# Lake Buena Vista / Walt Disney World resort area (not a Disney weather product).
+WDW_LATITUDE = 28.3852
+WDW_LONGITUDE = -81.5639
+OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
+NWS_ALERTS_URL = f"https://api.weather.gov/alerts/active?point={WDW_LATITUDE},{WDW_LONGITUDE}"
+NWS_USER_AGENT = "(Disney World Queue Intelligence portfolio; https://github.com/Riley-livingston/Disney-World-Queue-Intelligence)"
+# Melbourne, FL WSR-88D covers the four Orlando theme parks.
+NWS_RADAR_STATION = "KMLB"
+NWS_RADAR_LOOP = "https://radar.weather.gov/ridge/standard/KMLB_loop.gif"
+NWS_RADAR_PAGE = "https://radar.weather.gov/station/KMLB/standard"
 
 # ThemeParks.wiki caches live data for a few minutes. Hitting faster returns stale data
 # and burns the 300 req / 5 min budget.

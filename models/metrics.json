@@ -35,13 +35,6 @@
       "n": 180
     },
     {
-      "attraction_name": "DINOSAUR",
-      "mae": 3.192996827471379,
-      "naive_mae": 3.567777777777778,
-      "bias": 0.5630390526772118,
-      "n": 180
-    },
-    {
       "attraction_name": "Expedition Everest - Legend of the Forbidden Mountain",
       "mae": 3.4335352299537414,
       "naive_mae": 3.9266666666666663,

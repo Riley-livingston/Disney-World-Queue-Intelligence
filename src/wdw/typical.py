@@ -190,7 +190,7 @@ def combine_observations(
 
 
 def attraction_catalog(hourly: pd.DataFrame | None, live: pd.DataFrame | None = None) -> pd.DataFrame:
-    """Every live attraction, plus TouringPlans-only rides (e.g. DINOSAUR)."""
+    """Every live attraction, plus TouringPlans-mapped headliners."""
     rows: list[dict] = []
     if live is not None and not live.empty:
         work = live.copy()

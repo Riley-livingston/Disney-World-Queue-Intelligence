@@ -9,9 +9,9 @@ def test_four_theme_parks() -> None:
     assert parks()["magic_kingdom"]["entity_id"].startswith("75ea578a")
 
 
-def test_fourteen_headliners_mapped() -> None:
+def test_headliners_mapped() -> None:
     specs = attractions()
-    assert len(specs) == 14
-    live = [s for s in specs if s.get("live_entity_id")]
-    assert len(live) == 13  # DINOSAUR has closed
+    assert len(specs) == 13
+    assert all(s.get("live_entity_id") for s in specs)
     assert {s["key"] for s in specs} >= {"seven_dwarfs_train", "flight_of_passage", "soarin"}
+    assert "dinosaur" not in {s["key"] for s in specs}

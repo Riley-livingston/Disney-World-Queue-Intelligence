@@ -1,5 +1,5 @@
 # Maps TouringPlans historical datasets to live ThemeParks.wiki entities.
-# Historical models stay on this ~14-attraction set. The live board uses all rides.
+# Historical models stay on this 13-attraction set. The live board uses all rides.
 
 source: "TouringPlans.com Disney World Ride Wait Time Datasets"
 source_url: "https://touringplans.com/walt-disney-world/crowd-calendar#DataSets"
@@ -89,14 +89,6 @@ attractions:
     park: hollywood_studios
     live_entity_id: d56506e2-6ad3-443a-8065-fea37987248d
     live_name: Alien Swirling Saucers
-
-  - key: dinosaur
-    file: dinosaur.csv
-    name: DINOSAUR
-    park: animal_kingdom
-    live_entity_id: null
-    live_name: null
-    note: DINOSAUR has closed. Historical waits have no live counterpart.
 
   - key: expedition_everest
     file: expedition_everest.csv

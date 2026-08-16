@@ -240,14 +240,19 @@ def build_warehouse() -> dict[str, Path]:
 def load_hourly(prefer_full: bool = True) -> pd.DataFrame:
     """Load the full hourly table, falling back to the committed sample."""
     if prefer_full and HOURLY_PARQUET.exists():
-        return pd.read_parquet(HOURLY_PARQUET)
-    if SAMPLE_HOURLY_PARQUET.exists():
-        return pd.read_parquet(SAMPLE_HOURLY_PARQUET)
-    if HOURLY_PARQUET.exists():
-        return pd.read_parquet(HOURLY_PARQUET)
-    from wdw.sample_data import write_committed_sample
+        frame = pd.read_parquet(HOURLY_PARQUET)
+    elif SAMPLE_HOURLY_PARQUET.exists():
+        frame = pd.read_parquet(SAMPLE_HOURLY_PARQUET)
+    elif HOURLY_PARQUET.exists():
+        frame = pd.read_parquet(HOURLY_PARQUET)
+    else:
+        from wdw.sample_data import write_committed_sample
 
-    return write_committed_sample()
+        frame = write_committed_sample()
+    allowed = {spec["key"] for spec in attractions()}
+    if "attraction_key" in frame.columns:
+        frame = frame.loc[frame["attraction_key"].isin(allowed)].copy()
+    return frame
 
 
 def main(argv: list[str] | None = None) -> int:
