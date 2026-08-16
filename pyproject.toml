@@ -15,11 +15,9 @@ dependencies = [
   "pandas>=2.2",
   "pyarrow>=15",
   "duckdb>=1.0",
-  "scikit-learn>=1.4",
   "plotly>=5.20",
   "streamlit>=1.36",
   "pyyaml>=6.0",
-  "joblib>=1.4",
   "python-dateutil>=2.9",
 ]
 
@@ -30,7 +28,6 @@ dev = ["pytest>=8.0", "ruff>=0.5"]
 wdw-ingest-history = "wdw.ingest_touringplans:main"
 wdw-ingest-live = "wdw.ingest_live:main"
 wdw-build = "wdw.warehouse:main"
-wdw-train = "wdw.model:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

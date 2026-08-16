@@ -5,8 +5,9 @@ from __future__ import annotations
 import pandas as pd
 
 from wdw.features import add_time_features, hourly_aggregates
-from wdw.model import posted_vs_actual, typical_day_curve
+from wdw.model import posted_vs_actual
 from wdw.sample_data import generate_sample_hourly
+from wdw.typical import typical_day_curve
 
 
 def test_add_time_features_weekend_and_hour() -> None:

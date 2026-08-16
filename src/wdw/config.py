@@ -15,7 +15,6 @@ TOURINGPLANS_DIR = RAW_DIR / "touringplans"
 LIVE_DIR = RAW_DIR / "themeparks"
 PROCESSED_DIR = DATA_DIR / "processed"
 SAMPLE_DIR = DATA_DIR / "sample"
-MODELS_DIR = PROJECT_ROOT / "models"
 
 DUCKDB_PATH = PROCESSED_DIR / "wdw.duckdb"
 HOURLY_PARQUET = PROCESSED_DIR / "hourly.parquet"
@@ -24,8 +23,6 @@ LIVE_PARQUET = PROCESSED_DIR / "live_snapshots.parquet"
 SAMPLE_HOURLY_PARQUET = SAMPLE_DIR / "hourly_sample.parquet"
 SAMPLE_LIVE_PARQUET = SAMPLE_DIR / "live_sample.parquet"
 FORECAST_PARQUET = PROCESSED_DIR / "forecasts.parquet"
-METRICS_JSON = MODELS_DIR / "metrics.json"
-MODEL_PATH = MODELS_DIR / "wait_model.joblib"
 
 ATTRACTION_MAP_PATH = PACKAGE_DIR / "attraction_map.yml"
 
@@ -80,5 +77,5 @@ def park_entity_ids() -> dict[str, str]:
 
 
 def ensure_data_dirs() -> None:
-    for path in (TOURINGPLANS_DIR, LIVE_DIR, PROCESSED_DIR, SAMPLE_DIR, MODELS_DIR):
+    for path in (TOURINGPLANS_DIR, LIVE_DIR, PROCESSED_DIR, SAMPLE_DIR):
         path.mkdir(parents=True, exist_ok=True)

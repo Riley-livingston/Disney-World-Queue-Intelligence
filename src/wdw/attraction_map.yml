@@ -1,5 +1,5 @@
 # Maps TouringPlans historical datasets to live ThemeParks.wiki entities.
-# Historical models stay on this 13-attraction set. The live board uses all rides.
+# Historical summaries stay on this 13-attraction set. The live board uses all rides.
 
 source: "TouringPlans.com Disney World Ride Wait Time Datasets"
 source_url: "https://touringplans.com/walt-disney-world/crowd-calendar#DataSets"

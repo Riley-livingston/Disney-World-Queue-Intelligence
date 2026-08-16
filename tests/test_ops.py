@@ -78,8 +78,15 @@ def test_attention_queue_ranks_downs_first() -> None:
 
 
 def test_current_vs_typical_delta() -> None:
-    curve = pd.DataFrame({"hour": [10, 11, 12], "posted_median": [15.0, 25.0, 40.0]})
+    curve = pd.DataFrame({"hour": [10, 11, 12], "posted_median": [15.0, 25.0, 40.0], "n": [4, 4, 4]})
     result = current_vs_typical(curve, live_wait=55, hour=12)
     assert result["typical"] == 40
     assert result["live"] == 55
     assert result["delta"] == 15
+
+
+def test_current_vs_typical_skips_empty_hours() -> None:
+    curve = pd.DataFrame({"hour": [12], "posted_median": [0.0], "n": [0]})
+    result = current_vs_typical(curve, live_wait=35, hour=12)
+    assert result["typical"] is None
+    assert result["delta"] is None

@@ -158,6 +158,8 @@ def current_vs_typical(curve: pd.DataFrame, live_wait, hour: int) -> dict:
     slice_ = curve.loc[pd.to_numeric(curve["hour"], errors="coerce") == hour]
     if slice_.empty:
         return empty
+    if "n" in slice_.columns and float(pd.to_numeric(slice_["n"].iloc[0], errors="coerce") or 0) <= 0:
+        return empty
     typical = _num(slice_["posted_median"].iloc[0])
     live = _num(live_wait)
     delta = None if typical is None or live is None else live - typical

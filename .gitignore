@@ -21,8 +21,3 @@ data/processed/
 .env
 .env.*
 .DS_Store
-
-# Models trained locally (sample metrics JSON is tracked)
-models/*.joblib
-models/*.pkl
-!models/.gitkeep

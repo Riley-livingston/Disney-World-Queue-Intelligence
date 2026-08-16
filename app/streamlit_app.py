@@ -16,13 +16,21 @@ import plotly.graph_objects as go
 import pydeck as pdk
 import streamlit as st
 
-from wdw.config import METRICS_JSON, SAMPLE_HOURLY_PARQUET
+from wdw.config import SAMPLE_HOURLY_PARQUET
 from wdw.eastern import format_clock, format_series, hour_et_category, hour_label, now_eastern, park_day_labels
 from wdw.ingest_live import latest_live_frame
-from wdw.model import expected_wait, posted_vs_actual, typical_day_curve
+from wdw.model import expected_wait, posted_vs_actual
 from wdw.ops import attention_queue, current_vs_typical
 from wdw.themeparks import CREDIT, ThemeParksClient, ThemeParksError, flatten_live
-from wdw.typical import attraction_catalog, combine_observations, empty_typical_day
+from wdw.typical import (
+    attraction_catalog,
+    empty_typical_day,
+    explode_forecasts,
+    has_forecast_series,
+    has_typical_series,
+    observations_from_hourly,
+    typical_day_curve,
+)
 from wdw.warehouse import load_hourly
 from wdw.weather import (
     PARK_POINTS,
@@ -236,7 +244,15 @@ def fetch_live() -> pd.DataFrame:
 
 @st.cache_data(show_spinner=False)
 def historical() -> pd.DataFrame:
-    return load_hourly(prefer_full=True)
+    frame = load_hourly(prefer_full=True)
+    if frame.empty:
+        return frame
+    keep = pd.Series(True, index=frame.index)
+    if "attraction_key" in frame.columns:
+        keep &= frame["attraction_key"].ne("dinosaur")
+    if "attraction_name" in frame.columns:
+        keep &= ~frame["attraction_name"].str.upper().eq("DINOSAUR")
+    return frame.loc[keep].copy()
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -245,7 +261,11 @@ def typical_day_frames() -> tuple[pd.DataFrame, pd.DataFrame]:
     hourly = historical()
     live, _source = load_live_board()
     catalog = attraction_catalog(hourly, live)
-    curves = typical_day_curve(combine_observations(hourly, live))
+    history = observations_from_hourly(hourly)
+    forecast = explode_forecasts(live)
+    parts = [frame for frame in (history, forecast) if not frame.empty]
+    work = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
+    curves = typical_day_curve(work, month=now_eastern().month)
     return catalog, curves
 
 
@@ -577,15 +597,9 @@ def page_mission_control(park: str) -> None:
         table_height = header_px + len(shown) * row_px
         st.dataframe(shown, hide_index=True, width="stretch", height=table_height)
         st.caption("Critical = down. High = far above baseline or 90+ minute standby. Watch = elevated but not yet a call-out.")
-        if METRICS_JSON.exists():
-            import json
-
-            metrics = json.loads(METRICS_JSON.read_text(encoding="utf-8"))
-            st.caption(
-                f"Expected wait is an explainable hour/weekday/month baseline "
-                f"(holdout MAE {metrics['mae_minutes']} min vs naive {metrics['naive_mae_minutes']} min). "
-                "Not a claim to beat Disney's own wait system."
-            )
+        st.caption(
+            "Expected wait is the TouringPlans historical median for this attraction, hour, and weekday."
+        )
 
     render_weather_strip(wx)
 
@@ -749,60 +763,85 @@ def typical_day_overlay_figure(
 ) -> go.Figure:
     accent = PARK_COLORS.get(selected_park, ROYAL)
     fig = go.Figure()
-    fig.add_trace(
-        go.Scatter(
-            x=curve["hour_et"],
-            y=curve["posted_p75"],
-            line=dict(width=0),
-            showlegend=False,
-            hoverinfo="skip",
+    show_typical = has_typical_series(curve)
+    spread = 0.0
+    if show_typical:
+        spread = float(
+            (
+                pd.to_numeric(curve["posted_p75"], errors="coerce").fillna(0)
+                - pd.to_numeric(curve["posted_p25"], errors="coerce").fillna(0)
+            ).max()
         )
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=curve["hour_et"],
-            y=curve["posted_p25"],
-            fill="tonexty",
-            fillcolor="rgba(240,193,74,0.28)",
-            line=dict(width=0),
-            name="Typical 25th–75th",
-        )
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=curve["hour_et"],
-            y=curve["posted_median"],
-            mode="lines+markers",
-            line=dict(color=accent, width=3.5),
-            marker=dict(size=7, color=accent),
-            name="Typical posted",
-        )
-    )
-    if curve.get("has_actual") is not None and float(curve["has_actual"].fillna(0).max()) > 0:
+    if show_typical and spread >= 1:
         fig.add_trace(
             go.Scatter(
                 x=curve["hour_et"],
-                y=curve["actual_median"],
-                mode="lines",
-                line=dict(color=GOLD, width=2.5, dash="dash"),
-                name="Typical actual",
+                y=curve["posted_p75"],
+                line=dict(width=0),
+                showlegend=False,
+                hoverinfo="skip",
+            )
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=curve["hour_et"],
+                y=curve["posted_p25"],
+                fill="tonexty",
+                fillcolor="rgba(240,193,74,0.28)",
+                line=dict(width=0),
+                name="Typical 25th–75th",
+            )
+        )
+    if show_typical:
+        fig.add_trace(
+            go.Scatter(
+                x=curve["hour_et"],
+                y=curve["posted_median"],
+                mode="lines+markers",
+                line=dict(color=accent, width=3.5),
+                marker=dict(size=7, color=accent),
+                name="Typical posted",
+            )
+        )
+        if curve.get("has_actual") is not None and float(curve["has_actual"].fillna(0).max()) > 0:
+            fig.add_trace(
+                go.Scatter(
+                    x=curve["hour_et"],
+                    y=curve["actual_median"],
+                    mode="lines",
+                    line=dict(color=GOLD, width=2.5, dash="dash"),
+                    name="Typical actual",
+                )
+            )
+    if has_forecast_series(curve):
+        forecast = curve.loc[pd.to_numeric(curve["forecast_wait"], errors="coerce").fillna(0) > 0]
+        fig.add_trace(
+            go.Scatter(
+                x=forecast["hour_et"],
+                y=forecast["forecast_wait"],
+                mode="lines+markers",
+                line=dict(color=LAGOON, width=2.5, dash="dot"),
+                marker=dict(size=6, color=LAGOON),
+                name="Today's forecast",
+                connectgaps=False,
             )
         )
     if vs["live"] is not None:
         fig.add_trace(
             go.Scatter(
-                x=[hour_label(now.hour)],
+                x=hour_et_category(pd.Series([now.hour])),
                 y=[vs["live"]],
                 mode="markers",
-                marker=dict(size=14, color=STUDIO_RED, symbol="diamond", line=dict(width=1, color=NAVY)),
-                name="Live now",
+                marker=dict(size=16, color=STUDIO_RED, symbol="diamond", line=dict(width=2, color=NAVY)),
+                name="Live standby (now)",
             )
         )
     eastern_hour_axis(fig)
     fig = style_fig(fig)
-    highs = [curve["posted_p75"], curve["posted_median"]]
-    if "actual_median" in curve.columns:
-        highs.append(curve["actual_median"])
+    highs = []
+    for col in ("posted_p75", "posted_median", "actual_median", "forecast_wait"):
+        if col in curve.columns:
+            highs.append(pd.to_numeric(curve[col], errors="coerce"))
     if vs.get("live") is not None:
         highs.append(pd.Series([vs["live"]]))
     top = pd.concat(highs, ignore_index=True).max(skipna=True)
@@ -893,9 +932,32 @@ def page_typical_day(park: str) -> None:
     typical = "—" if vs["typical"] is None else f"{vs['typical']:.0f} min"
     live_txt = "—" if vs["live"] is None else f"{vs['live']:.0f} min"
     delta = "—" if vs["delta"] is None else f"{vs['delta']:+.0f} min"
+    hour_row = curve.loc[pd.to_numeric(curve["hour"], errors="coerce") == now.hour] if not curve.empty else pd.DataFrame()
+    if hour_row.empty or "forecast_wait" not in hour_row.columns:
+        forecast_txt = "—"
+    else:
+        forecast_val = pd.to_numeric(hour_row["forecast_wait"].iloc[0], errors="coerce")
+        forecast_txt = "—" if pd.isna(forecast_val) or forecast_val <= 0 else f"{forecast_val:.0f} min"
+    month_name = now.strftime("%B")
     st.caption(
-        f"**{picked}** · {selected_park} · Typical this hour {typical} · Live {live_txt} · Today vs typical {delta}"
+        f"**{picked}** · {selected_park} · {month_name} typical {typical} · "
+        f"Today's forecast {forecast_txt} · Live {live_txt} · Today vs typical {delta}"
     )
+    bits = []
+    if has_typical_series(curve):
+        bits.append(f"Typical posted and the 25–75 band are historical {month_name} hours (all years).")
+        if curve.get("has_actual") is not None and float(curve["has_actual"].fillna(0).max()) > 0:
+            bits.append("Typical actual is TouringPlans guest-reported waits for those same hours.")
+    if has_forecast_series(curve):
+        bits.append("Today's forecast is the ThemeParks hourly plan, plotted separately from history.")
+    if not has_typical_series(curve) and not has_forecast_series(curve):
+        bits.append(
+            "No TouringPlans history and no hourly forecast for this attraction — only live standby is shown."
+        )
+    elif not has_typical_series(curve):
+        bits.append("No TouringPlans history for this attraction, so there is no typical posted line or 25–75 band.")
+    bits.append("The red diamond is live standby right now.")
+    st.caption(" ".join(bits))
     fig = typical_day_overlay_figure(curve, picked, selected_park, vs, now)
     st.plotly_chart(
         fig,
@@ -921,10 +983,18 @@ def page_typical_day(park: str) -> None:
 
 def page_posted_vs_actual(hourly: pd.DataFrame, park: str) -> None:
     st.subheader("Posted-wait integrity")
-    st.caption(
-        "Posted standby is a guest-facing estimate. Actual wait is what a TouringPlans guest reported standing. "
-        "A large buffer is often a communication choice — better to beat the sign than miss it — but it is also "
-        "where guest trust in the wait system lives."
+    st.markdown(
+        """
+The posted wait is a **promise**: stand this long, then you ride. This page checks whether that promise holds.
+
+**Posted** is the number on the sign and in the app. **Actual** is how long a TouringPlans guest reported standing. The **buffer** is posted minus actual.
+
+- A **small positive buffer** is often intentional. Guests beat the sign, trust the next posted wait, and the park avoids missing its own estimate.
+- A **large buffer** is where integrity slips. Guests skip a ride that was not as long as advertised, or they stop believing the wait system at all.
+- A **negative buffer** is the real miss: the line was longer than the sign. That is the hour to audit.
+
+Use the charts to see **which headliners pad the most** and **which hours the sign is most conservative**.
+        """.strip()
     )
     summary = posted_vs_actual(hourly)
     summary = filter_park(summary, park)
@@ -934,10 +1004,12 @@ def page_posted_vs_actual(hourly: pd.DataFrame, park: str) -> None:
     overall_bias = float(work["posted_minus_actual"].median()) if "posted_minus_actual" in work else float("nan")
     c1, c2, c3 = st.columns(3)
     c1.metric("Headliners", f"{len(summary):,}")
-    c2.metric("Median posted − actual", f"{overall_bias:.1f} min")
+    c2.metric("Median buffer", f"{overall_bias:.1f} min", help="Posted wait minus actual wait. Positive means guests stood less than the sign.")
     c3.metric("Hours with both measures", f"{int(summary['n'].sum()) if not summary.empty else 0:,}")
+    st.caption("Buffer = posted − actual. TouringPlans guest reports, not official Disney timing.")
 
-    st.markdown("**Where posted waits overshoot what guests actually stand**")
+    st.markdown("**Which rides overstate the wait**")
+    st.caption("Longer bars mean a bigger typical gap between the sign and what guests actually stood. Headliners often pad more than high-capacity rides.")
     fig = px.bar(
         summary.sort_values("bias_mean"),
         x="bias_mean",
@@ -945,7 +1017,7 @@ def page_posted_vs_actual(hourly: pd.DataFrame, park: str) -> None:
         color="park_name",
         color_discrete_map=PARK_COLORS,
         color_discrete_sequence=CHART_COLORS,
-        labels={"bias_mean": "Mean posted minus actual (minutes)", "attraction_name": "Attraction", "park_name": "Park"},
+        labels={"bias_mean": "Mean buffer (min)", "attraction_name": "Attraction", "park_name": "Park"},
     )
     fig = style_fig(fig)
     fig.update_layout(
@@ -965,6 +1037,8 @@ def page_posted_vs_actual(hourly: pd.DataFrame, park: str) -> None:
     )
     st.plotly_chart(fig, width="stretch")
 
+    st.markdown("**When during the day the sign is most conservative**")
+    st.caption("A rising line means the posted wait is padding more in that hour — useful for when to staff merge points and when guests are most likely to distrust the sign.")
     by_hour = (
         work.dropna(subset=["posted_minus_actual"])
         .groupby("hour", observed=True)["posted_minus_actual"]
@@ -977,12 +1051,13 @@ def page_posted_vs_actual(hourly: pd.DataFrame, park: str) -> None:
         x="hour_et",
         y="posted_minus_actual",
         markers=True,
-        labels={"hour_et": "Hour of day (Eastern Time)", "posted_minus_actual": "Median posted − actual (minutes)"},
-        title="Posted-wait buffer by hour — when the sign is most conservative",
+        labels={"hour_et": "Hour of day (Eastern Time)", "posted_minus_actual": "Median buffer (min)"},
     )
     fig_h.update_traces(line=dict(color=ROYAL, width=3), marker=dict(size=8, color=GOLD))
+    fig_h.update_layout(title_text="")
     eastern_hour_axis(fig_h)
     st.plotly_chart(style_fig(fig_h), width="stretch")
+    st.caption("Each row is one TouringPlans headliner. Buffer is in minutes; hours is how many attraction-hours had both posted and actual waits.")
     st.dataframe(
         summary.rename(
             columns={

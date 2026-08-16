@@ -252,6 +252,8 @@ def load_hourly(prefer_full: bool = True) -> pd.DataFrame:
     allowed = {spec["key"] for spec in attractions()}
     if "attraction_key" in frame.columns:
         frame = frame.loc[frame["attraction_key"].isin(allowed)].copy()
+    if "attraction_name" in frame.columns:
+        frame = frame.loc[frame["attraction_name"].str.upper().ne("DINOSAUR")].copy()
     return frame
 
 
