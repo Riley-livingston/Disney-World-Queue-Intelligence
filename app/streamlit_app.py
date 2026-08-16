@@ -580,7 +580,6 @@ def page_mission_control(park: str) -> None:
                 "status",
                 "standby_min",
                 "vs_expected_min",
-                "action",
             ]
         ].rename(
             columns={
@@ -590,7 +589,6 @@ def page_mission_control(park: str) -> None:
                 "status": "Status",
                 "standby_min": "Standby (min)",
                 "vs_expected_min": "Vs expected (min)",
-                "action": "Suggested next step",
             }
         )
         header_px, row_px = 42, 36

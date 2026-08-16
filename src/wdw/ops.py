@@ -41,7 +41,6 @@ def classify_attraction(row: dict) -> dict | None:
             "standby_min": wait,
             "vs_expected_min": delta,
             "signal": "Down",
-            "action": "Unplanned downtime. Stage crowd control and point guests to nearby open capacity.",
         }
 
     if status != "OPERATING":
@@ -57,7 +56,6 @@ def classify_attraction(row: dict) -> dict | None:
             "standby_min": wait,
             "vs_expected_min": delta,
             "signal": f"{int(round(delta))} min above expected",
-            "action": "Demand is running hot vs this hour's baseline. Check Lightning Lane, merge points, and nearby alternatives.",
         }
 
     if wait is not None and wait >= SEVERE_STANDBY:
@@ -70,7 +68,6 @@ def classify_attraction(row: dict) -> dict | None:
             "standby_min": wait,
             "vs_expected_min": delta,
             "signal": f"{int(wait)} min standby",
-            "action": "Severe queue. Add entertainment / guest control and watch posted-wait accuracy.",
         }
 
     if delta is not None and delta >= HOT_MINUTES:
@@ -83,7 +80,6 @@ def classify_attraction(row: dict) -> dict | None:
             "standby_min": wait,
             "vs_expected_min": delta,
             "signal": f"{int(round(delta))} min above expected",
-            "action": "Monitor. If it holds for another cycle, treat as a staffing / flow issue.",
         }
 
     if wait is not None and wait >= LONG_STANDBY:
@@ -96,7 +92,6 @@ def classify_attraction(row: dict) -> dict | None:
             "standby_min": wait,
             "vs_expected_min": delta,
             "signal": f"{int(wait)} min standby",
-            "action": "Long posted wait. Confirm the sign matches the physical queue.",
         }
 
     return None

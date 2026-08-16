@@ -10,7 +10,7 @@ This is a portfolio project. It is **not affiliated with, endorsed by, or connec
 
 Disney parks run on queueing. Capacity, Lightning Lane, early entry, and the posted wait on a sign are all guest-experience decisions. Most public dashboards stop at a live number. A shift lead needs the next step:
 
-1. **Mission control** — resort-area radar and forecast, downs, severe standby, and headliners running hot vs this hour’s baseline, with a suggested next step.
+1. **Mission control** — resort-area radar and forecast, downs, severe standby, and headliners running hot vs this hour’s baseline.
 2. **Park day plan** — live inventory plus typical posted-wait shape with today’s live wait overlaid, for staffing and crowd-flow. Click a ride to load its curve.
 3. **Posted-wait integrity** — whether the posted sign matches what guests actually stand, and which rides or hours pad that promise.
 
