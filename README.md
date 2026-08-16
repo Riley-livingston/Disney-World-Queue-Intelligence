@@ -6,6 +6,8 @@ The question is not “what is the wait at Space Mountain.” It is: *if I were 
 
 This is a portfolio project. It is **not affiliated with, endorsed by, or connected to The Walt Disney Company.**
 
+**Live app:** [disney-world-queue.streamlit.app](https://disney-world-queue.streamlit.app)
+
 ## Problem
 
 Disney parks run on queueing. Capacity, Lightning Lane, early entry, and the posted wait on a sign are all guest-experience decisions. Most public dashboards stop at a live number. A shift lead needs the next step:
@@ -75,17 +77,9 @@ Tests: `pytest -q`
 
 ## Live app (Streamlit Community Cloud)
 
-GitHub Pages cannot host this app. Streamlit Community Cloud can.
+Public demo: [https://disney-world-queue.streamlit.app](https://disney-world-queue.streamlit.app)
 
-1. Confirm the GitHub repo is **public**: [Riley-livingston/Disney-World-Queue-Intelligence](https://github.com/Riley-livingston/Disney-World-Queue-Intelligence).
-2. Sign in at [share.streamlit.io](https://share.streamlit.io) with GitHub.
-3. **Create app** and set:
-   - Repository: `Disney-World-Queue-Intelligence`
-   - Branch: `main`
-   - Main file path: `app/streamlit_app.py`
-4. Deploy. The first build takes a few minutes. After that, pushes to `main` redeploy automatically.
-
-The public URL looks like `https://<app-name>.streamlit.app`. Free apps can sleep when idle; the first visit after that is slow.
+GitHub Pages cannot host this app. Streamlit Community Cloud runs `app/streamlit_app.py` from `main`. Pushes to `main` redeploy automatically. Free apps can sleep when idle; the first visit after that is slow.
 
 ## Project layout
 
