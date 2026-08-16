@@ -1,4 +1,4 @@
-"""Disney World Queue Intelligence — Streamlit guest-operations brief."""
+"""Disney World Queue Intelligence: Streamlit guest-operations brief."""
 
 from __future__ import annotations
 
@@ -17,10 +17,19 @@ import pydeck as pdk
 import streamlit as st
 
 from wdw.config import SAMPLE_HOURLY_PARQUET
-from wdw.eastern import format_clock, format_series, hour_et_category, hour_label, now_eastern, park_day_labels
+from wdw.eastern import PARK_DAY_HOURS, format_clock, format_series, hour_et_category, hour_label, now_eastern, park_day_labels
 from wdw.ingest_live import latest_live_frame
 from wdw.model import expected_wait, posted_vs_actual
-from wdw.ops import attention_queue, current_vs_typical
+from wdw.ops import (
+    STACK_THRESHOLD,
+    attention_queue,
+    current_vs_typical,
+    format_lead_minutes,
+    overlapping_hours,
+    return_pressure_kpis,
+    return_time_pressure,
+    return_windows_by_hour,
+)
 from wdw.themeparks import CREDIT, ThemeParksClient, ThemeParksError, flatten_live
 from wdw.typical import (
     attraction_catalog,
@@ -57,6 +66,12 @@ PARK_COLORS = {
     "EPCOT": LAGOON,
     "Disney's Hollywood Studios": STUDIO_RED,
     "Disney's Animal Kingdom Theme Park": CANOPY,
+}
+PARK_SHORT = {
+    "Magic Kingdom Park": "Magic Kingdom",
+    "EPCOT": "EPCOT",
+    "Disney's Hollywood Studios": "Hollywood Studios",
+    "Disney's Animal Kingdom Theme Park": "Animal Kingdom",
 }
 PARK_RIDE_COLORS = {
     "Magic Kingdom Park": [ROYAL, GOLD, "#C41E3A", "#5B8DEF", "#7B5EA7"],
@@ -424,7 +439,7 @@ def typical_day_park_figure(slice_: pd.DataFrame, park: str) -> go.Figure:
 
 
 def render_radar_background(tile_url: str | None) -> None:
-    """Faint RainViewer overlay, cropped to the four Orlando parks — not statewide Florida."""
+    """Faint RainViewer overlay, cropped to the four Orlando parks, not statewide Florida."""
     layers = []
     if tile_url:
         layers.append(
@@ -521,17 +536,261 @@ def render_weather_strip(wx: dict | None) -> None:
     if wx.get("thunderstorm") or (wx.get("alerts") or []):
         st.error(wx.get("implication") or "NWS weather alert in effect.")
         for alert in wx.get("alerts") or []:
-            st.warning(f"**NWS {alert['event']}** — {alert['headline']}")
+            st.warning(f"**NWS {alert['event']}**: {alert['headline']}")
     elif wx.get("implication"):
         st.caption(wx["implication"])
     st.caption(WEATHER_CREDIT)
+
+
+def _return_window_label(start, end) -> str:
+    start_txt = format_clock(start)
+    if not start_txt:
+        return "n/a"
+    end_txt = format_clock(end, with_tz=False)
+    return f"{start_txt} to {end_txt}" if end_txt else start_txt
+
+
+def park_short_name(park: str) -> str:
+    return PARK_SHORT.get(park, park)
+
+
+def render_return_pressure(attractions: pd.DataFrame, park: str) -> None:
+    st.markdown("## Lightning Lane pressure")
+    st.caption(
+        "ThemeParks.wiki Lightning Lane and Individual Lightning Lane windows, not Disney's inventory feed. "
+        "A far-out window means guests are booking deep into the day."
+    )
+    pressure = return_time_pressure(attractions)
+    kpis = return_pressure_kpis(pressure)
+    overlap = overlapping_hours(pressure)
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Lightning Lane available", f"{kpis['available']:,}")
+    m2.metric("Lightning Lane exhausted", f"{kpis['exhausted']:,}")
+    if kpis["farthest_minutes"] is not None:
+        m3.metric(
+            "Farthest Lightning Lane",
+            format_lead_minutes(kpis["farthest_minutes"]),
+            kpis["farthest_attraction"],
+        )
+    else:
+        m3.metric("Farthest Lightning Lane", "n/a")
+    overlap_help = (
+        f"Count of park clock hours where {STACK_THRESHOLD} or more attractions have Lightning Lane "
+        "windows starting in that hour. Those hours send extra guests into the same paths and merge "
+        "points at a booked time, on top of standby walk-up traffic."
+    )
+    if kpis["stacked_hours"] and kpis["busiest_hour"] is not None:
+        busiest = (
+            f"Busiest: {kpis['busiest_count']} rides at {hour_label(kpis['busiest_hour'])}, "
+            f"{park_short_name(kpis['busiest_park'])}"
+        )
+        m4.metric(
+            f"Hours with {STACK_THRESHOLD}+ rides overlapping",
+            f"{kpis['stacked_hours']:,}",
+            busiest,
+            delta_color="off",
+            help=overlap_help,
+        )
+    else:
+        m4.metric(
+            f"Hours with {STACK_THRESHOLD}+ rides overlapping",
+            "0",
+            f"None with {STACK_THRESHOLD} or more rides sharing an hour",
+            delta_color="off",
+            help=overlap_help,
+        )
+
+    if pressure.empty:
+        st.info("No Lightning Lane windows reporting in this park scope.")
+        return
+
+    by_hour = return_windows_by_hour(pressure)
+    if not by_hour.empty:
+        st.markdown("**How many attractions send Lightning Lane guests into each hour**")
+        st.caption(
+            "This chart is a count of attractions, not wait minutes. A bar of 8 at 10 PM means eight rides "
+            f"have Lightning Lane windows starting between 10 and 11. The dashed line is {STACK_THRESHOLD} rides: "
+            "at or above that, Lightning Lane arrivals from several attractions hit the same hour together. "
+            "Those guests show up at a booked time, so nearby corridors, merge points, and standby lines get "
+            "a pulse of extra people on top of walk-up demand."
+        )
+        plot = by_hour.copy()
+        plot["hour_et"] = plot["hour"].map(lambda h: hour_label(int(h)))
+        present = {int(h) for h in plot["hour"]}
+        hour_order = [hour_label(h) for h in PARK_DAY_HOURS if h in present]
+        plot["park_name"] = pd.Categorical(
+            plot["park_name"],
+            categories=[name for name in COMPARE_PARK_ORDER if name in set(plot["park_name"])],
+            ordered=True,
+        )
+        fig = px.bar(
+            plot.sort_values(["hour", "park_name"]),
+            x="hour_et",
+            y="attractions",
+            color="park_name",
+            color_discrete_map=PARK_COLORS,
+            color_discrete_sequence=CHART_COLORS,
+            category_orders={"hour_et": hour_order},
+            custom_data=["park_name"],
+            labels={
+                "hour_et": "Hour (ET)",
+                "attractions": "Attractions with a Lightning Lane window",
+                "park_name": "Park",
+            },
+        )
+        fig.update_traces(
+            hovertemplate="<b>%{x}</b><br>%{customdata[0]}<br>%{y:.0f} attractions with Lightning Lane windows<extra></extra>"
+        )
+        fig.add_hline(
+            y=STACK_THRESHOLD,
+            line_dash="dash",
+            line_color=SLATE,
+            line_width=1.5,
+            annotation_text=f"{STACK_THRESHOLD}+ rides overlapping",
+            annotation_position="top left",
+            annotation_font_color=SLATE,
+            annotation_font_size=12,
+        )
+        fig.update_layout(title_text="", barmode="group", bargap=0.25)
+        fig = style_ops_bar(fig)
+        fig.update_layout(margin=dict(l=8, r=16, t=36, b=64))
+        st.plotly_chart(fig, width="stretch")
+        if overlap.empty:
+            st.caption(
+                f"No hour currently has {STACK_THRESHOLD} or more attractions sharing a Lightning Lane window in the same park."
+            )
+        else:
+            listed = "; ".join(
+                f"{hour_label(int(row.hour))} at {park_short_name(row.park_name)} ({int(row.attractions)} rides)"
+                for row in overlap.itertuples()
+            )
+            st.caption(
+                f"The metric counts these {len(overlap)} overlapping hour"
+                f"{'s' if len(overlap) != 1 else ''}: {listed}. "
+                "Use the table filter to see the rides in those hours."
+            )
+
+    st.markdown("**Which rides share those hours**")
+    shown = pressure.copy()
+    filter_col, hour_col = st.columns([2, 3], vertical_alignment="bottom")
+    with filter_col:
+        only_overlap = st.toggle(
+            f"Only {STACK_THRESHOLD}+ overlapping hours",
+            value=not overlap.empty,
+            disabled=overlap.empty,
+            key=f"ll-overlap-filter-{park}",
+            help=(
+                f"Show only Lightning Lane windows that start in a park clock hour already shared by "
+                f"{STACK_THRESHOLD} or more attractions."
+            ),
+        )
+    hour_pick: tuple[str, int] | None = None
+    hour_options: list[tuple[str, tuple[str, int] | None]] = [("All overlapping hours", None)]
+    for row in overlap.itertuples():
+        hour_options.append(
+            (
+                f"{hour_label(int(row.hour))} · {park_short_name(row.park_name)} ({int(row.attractions)} rides)",
+                (str(row.park_name), int(row.hour)),
+            )
+        )
+    with hour_col:
+        if only_overlap and len(overlap) > 1:
+            labels = [label for label, _ in hour_options]
+            picked_label = st.selectbox(
+                "Overlapping hour",
+                labels,
+                key=f"ll-overlap-hour-{park}",
+            )
+            hour_pick = next(value for label, value in hour_options if label == picked_label)
+        elif only_overlap and len(overlap) == 1:
+            st.caption(
+                f"{hour_label(int(overlap.iloc[0]['hour']))} at "
+                f"{park_short_name(overlap.iloc[0]['park_name'])}"
+            )
+
+    if only_overlap:
+        shown = shown.loc[shown["stacked"].fillna(False).astype(bool)]
+        if hour_pick is not None:
+            park_name, hour = hour_pick
+            shown = shown.loc[(shown["park_name"] == park_name) & (shown["hour"] == hour)]
+        shown = shown.sort_values(["park_name", "hour", "attraction"], na_position="last")
+
+    if shown.empty:
+        st.info(
+            f"No Lightning Lane windows in hours with {STACK_THRESHOLD}+ overlapping rides in this park scope."
+        )
+        return
+
+    shown = shown.copy()
+    shown["Pressure"] = shown["inventory"].str.replace("_", " ").str.capitalize()
+    shown["Lightning Lane window"] = [
+        _return_window_label(start, end) for start, end in zip(shown["return_start"], shown["return_end"])
+    ]
+    shown["Lead"] = shown["lead_minutes"].map(format_lead_minutes)
+    shown["State"] = shown["state"].str.replace("_", " ").str.title()
+    overlap_flag = shown["stacked"].fillna(False).astype(bool)
+    shown["Overlap"] = [
+        "n/a"
+        if (not flag) or pd.isna(hour)
+        else f"{hour_label(int(hour))} ({int(count)} rides)"
+        for flag, hour, count in zip(overlap_flag, shown["hour"], shown["windows_in_hour"])
+    ]
+    keep = [
+        "Overlap",
+        "park_name",
+        "attraction",
+        "product",
+        "Pressure",
+        "State",
+        "Lightning Lane window",
+        "Lead",
+        "standby_min",
+        "windows_in_hour",
+    ]
+    if park != "All parks":
+        keep = [col for col in keep if col != "park_name"]
+    table = shown[keep].rename(
+        columns={
+            "park_name": "Park",
+            "attraction": "Attraction",
+            "product": "Product",
+            "standby_min": "Standby (min)",
+            "windows_in_hour": "Rides in this hour",
+        }
+    )
+    header_px, row_px = 42, 36
+    table_height = min(header_px + max(len(table), 1) * row_px, 42 + 12 * 36)
+    st.dataframe(
+        table,
+        hide_index=True,
+        width="stretch",
+        height=table_height,
+        column_config={
+            "Overlap": st.column_config.TextColumn(
+                "Overlap",
+                help=(
+                    f"Clock hour this Lightning Lane window shares with {STACK_THRESHOLD}+ other rides "
+                    "in the same park."
+                ),
+            ),
+            "Rides in this hour": st.column_config.NumberColumn(
+                "Rides in this hour",
+                help="How many attractions in this park have a Lightning Lane window starting in the same hour.",
+            ),
+        },
+    )
+    st.caption(
+        "Exhausted = ThemeParks reports FINISHED (no more Lightning Lane). "
+        "Paused = TEMP_FULL. Turn off the overlapping-hours filter to see every Lightning Lane window, "
+        f"including hours with fewer than {STACK_THRESHOLD} rides."
+    )
 
 
 def page_mission_control(park: str) -> None:
     st.subheader("Mission control")
     st.caption(
         "Park-wide picture this hour: weather holds, downs, waits running hot vs the historical baseline, "
-        "and severe standby. Not an official Disney operations system."
+        "severe standby, and Lightning Lane tightness. Not an official Disney operations system."
     )
     wx = load_weather()
     if wx is not None:
@@ -565,7 +824,7 @@ def page_mission_control(park: str) -> None:
         row = longest.iloc[0]
         c4.metric("Longest standby", f"{int(row['standby_wait'])} min", row["entity_name"])
     else:
-        c4.metric("Longest standby", "—")
+        c4.metric("Longest standby", "n/a")
 
     st.markdown("## Attention queue")
     st.caption("What to handle first this hour. Radar is behind the page, zoomed to the four parks.")
@@ -661,6 +920,8 @@ def page_mission_control(park: str) -> None:
             )
             st.plotly_chart(style_ops_bar(fig2), width="stretch")
 
+    render_return_pressure(attractions, park)
+
     hours = (
         attractions.dropna(subset=["opens_at"])
         .drop_duplicates("park_name")[["park_name", "opens_at", "closes_at"]]
@@ -721,9 +982,9 @@ def ride_board_table(view: pd.DataFrame, query: str, park: str, headliners_only:
             "entity_name": "Attraction",
             "status": "Status",
             "standby_wait": "Standby (min)",
-            "return_time_state": "Return",
-            "return_start": "Return start (ET)",
-            "paid_return_state": "Paid return",
+            "return_time_state": "Lightning Lane",
+            "return_start": "Lightning Lane start (ET)",
+            "paid_return_state": "Individual Lightning Lane",
         }
     )
     if "Standby (min)" in shown.columns:
@@ -787,7 +1048,7 @@ def typical_day_overlay_figure(
                 fill="tonexty",
                 fillcolor="rgba(240,193,74,0.28)",
                 line=dict(width=0),
-                name="Typical 25th–75th",
+                name="Typical 25th-75th",
             )
         )
     if show_typical:
@@ -927,15 +1188,15 @@ def page_typical_day(park: str) -> None:
     live_wait = live_row["standby_wait"].iloc[0] if not live_row.empty else None
     now = now_eastern()
     vs = current_vs_typical(curve, live_wait, now.hour)
-    typical = "—" if vs["typical"] is None else f"{vs['typical']:.0f} min"
-    live_txt = "—" if vs["live"] is None else f"{vs['live']:.0f} min"
-    delta = "—" if vs["delta"] is None else f"{vs['delta']:+.0f} min"
+    typical = "n/a" if vs["typical"] is None else f"{vs['typical']:.0f} min"
+    live_txt = "n/a" if vs["live"] is None else f"{vs['live']:.0f} min"
+    delta = "n/a" if vs["delta"] is None else f"{vs['delta']:+.0f} min"
     hour_row = curve.loc[pd.to_numeric(curve["hour"], errors="coerce") == now.hour] if not curve.empty else pd.DataFrame()
     if hour_row.empty or "forecast_wait" not in hour_row.columns:
-        forecast_txt = "—"
+        forecast_txt = "n/a"
     else:
         forecast_val = pd.to_numeric(hour_row["forecast_wait"].iloc[0], errors="coerce")
-        forecast_txt = "—" if pd.isna(forecast_val) or forecast_val <= 0 else f"{forecast_val:.0f} min"
+        forecast_txt = "n/a" if pd.isna(forecast_val) or forecast_val <= 0 else f"{forecast_val:.0f} min"
     month_name = now.strftime("%B")
     st.caption(
         f"**{picked}** · {selected_park} · {month_name} typical {typical} · "
@@ -943,17 +1204,17 @@ def page_typical_day(park: str) -> None:
     )
     bits = []
     if has_typical_series(curve):
-        bits.append(f"Typical posted and the 25–75 band are historical {month_name} hours (all years).")
+        bits.append(f"Typical posted and the 25-75 band are historical {month_name} hours (all years).")
         if curve.get("has_actual") is not None and float(curve["has_actual"].fillna(0).max()) > 0:
             bits.append("Typical actual is TouringPlans guest-reported waits for those same hours.")
     if has_forecast_series(curve):
         bits.append("Today's forecast is the ThemeParks hourly plan, plotted separately from history.")
     if not has_typical_series(curve) and not has_forecast_series(curve):
         bits.append(
-            "No TouringPlans history and no hourly forecast for this attraction — only live standby is shown."
+            "No TouringPlans history and no hourly forecast for this attraction. Only live standby is shown."
         )
     elif not has_typical_series(curve):
-        bits.append("No TouringPlans history for this attraction, so there is no typical posted line or 25–75 band.")
+        bits.append("No TouringPlans history for this attraction, so there is no typical posted line or 25-75 band.")
     bits.append("The red diamond is live standby right now.")
     st.caption(" ".join(bits))
     fig = typical_day_overlay_figure(curve, picked, selected_park, vs, now)
@@ -1004,7 +1265,7 @@ Use the charts to see **which headliners pad the most** and **which hours the si
     c1.metric("Headliners", f"{len(summary):,}")
     c2.metric("Median buffer", f"{overall_bias:.1f} min", help="Posted wait minus actual wait. Positive means guests stood less than the sign.")
     c3.metric("Hours with both measures", f"{int(summary['n'].sum()) if not summary.empty else 0:,}")
-    st.caption("Buffer = posted − actual. TouringPlans guest reports, not official Disney timing.")
+    st.caption("Buffer = posted minus actual. TouringPlans guest reports, not official Disney timing.")
 
     st.markdown("**Which rides overstate the wait**")
     st.caption("Longer bars mean a bigger typical gap between the sign and what guests actually stood. Headliners often pad more than high-capacity rides.")
@@ -1036,7 +1297,7 @@ Use the charts to see **which headliners pad the most** and **which hours the si
     st.plotly_chart(fig, width="stretch")
 
     st.markdown("**When during the day the sign is most conservative**")
-    st.caption("A rising line means the posted wait is padding more in that hour — useful for when to staff merge points and when guests are most likely to distrust the sign.")
+    st.caption("A rising line means the posted wait is padding more in that hour. That is useful for when to staff merge points and when guests are most likely to distrust the sign.")
     by_hour = (
         work.dropna(subset=["posted_minus_actual"])
         .groupby("hour", observed=True)["posted_minus_actual"]
@@ -1114,7 +1375,7 @@ def main() -> None:
               </div>
               <p style="margin:0; color:{SLATE}; max-width:46rem;">
                 Mission control for Walt Disney World park operations: weather holds, what is down, what is running hot
-                versus a typical hour, and where posted waits diverge from what guests actually stand.
+                versus a typical hour, where Lightning Lane is sending people, and where posted waits diverge from what guests actually stand.
               </p>
               <div class="gold-rule"></div>
             </div>
@@ -1129,7 +1390,7 @@ def main() -> None:
 
     if page != "Park day plan":
         st.markdown(
-            f"<p class='disclaimer'>Independent portfolio project — not an official Disney operations tool. Wait times are third-party observations. {CREDIT} {WEATHER_CREDIT}</p>",
+            f"<p class='disclaimer'>Independent portfolio project, not an official Disney operations tool. Wait times are third-party observations. {CREDIT} {WEATHER_CREDIT}</p>",
             unsafe_allow_html=True,
         )
 

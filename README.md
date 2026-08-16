@@ -2,7 +2,7 @@
 
 An independent guest-operations analytics project for **Walt Disney World** in Orlando, Florida.
 
-The question is not “what is the wait at Space Mountain.” It is: *if I were on a park operations radio this hour, what is down, what is running hot versus a typical day, and where is the posted wait lying to guests?*
+The question is not “what is the wait at Space Mountain.” It is: *if I were on a park operations radio this hour, what is down, what is running hot versus a typical day, where is Lightning Lane sending people, and where is the posted wait lying to guests?*
 
 This is a portfolio project. It is **not affiliated with, endorsed by, or connected to The Walt Disney Company.**
 
@@ -10,7 +10,7 @@ This is a portfolio project. It is **not affiliated with, endorsed by, or connec
 
 Disney parks run on queueing. Capacity, Lightning Lane, early entry, and the posted wait on a sign are all guest-experience decisions. Most public dashboards stop at a live number. A shift lead needs the next step:
 
-1. **Mission control** — resort-area radar and forecast, downs, severe standby, and headliners running hot vs this hour’s baseline.
+1. **Mission control** — resort-area radar and forecast, downs, severe standby, headliners running hot vs this hour’s baseline, and Lightning Lane return-time tightness (how far out the next window is, and which hours several attractions stack into).
 2. **Park day plan** — live inventory plus typical posted-wait shape with today’s live wait overlaid, for staffing and crowd-flow. Click a ride to load its curve.
 3. **Posted-wait integrity** — whether the posted sign matches what guests actually stand, and which rides or hours pad that promise.
 
@@ -30,6 +30,7 @@ Live fetches respect ThemeParks.wiki’s cache: refresh no more than once every 
 - Ingest TouringPlans CSVs to an attraction-hour grain (median posted and actual wait).
 - Typical posted, 25–75 band, and typical actual are historical percentiles for the current month.
 - Expected wait on Mission control is the historical median for the same attraction, hour, and weekday. Live ThemeParks.wiki standby minus that baseline flags a hot hour. Not a trained model, and not a claim to beat Disney’s own wait system.
+- Return-time pressure uses ThemeParks.wiki `RETURN_TIME` and `PAID_RETURN_TIME` states. Lead time is minutes until the posted return start. Stacked hours are three or more attractions in the same park whose windows land in the same Eastern hour. This is the public Lightning Lane window, not Disney’s inventory feed.
 
 ## Findings
 
@@ -84,7 +85,7 @@ tests/             API flatten, features, warehouse, typical-day
 
 ## If I had production data at Disney
 
-Next I would add virtual-queue abandon rates, Lightning Lane conversion and return-time tightness, weather at the park (not the airport), special-ticket events, and attraction downtime as a first-class feature. The useful briefing tells operations which hour is breaking from the park’s own history.
+Next I would add virtual-queue abandon rates, official Lightning Lane conversion, weather at the park (not the airport), special-ticket events, and attraction downtime as a first-class feature. The useful briefing tells operations which hour is breaking from the park’s own history.
 
 ## Credits and limits
 
