@@ -1,0 +1,28 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+dist/
+build/
+
+# Data (large CSVs and local warehouse — sample parquet is tracked)
+data/raw/
+data/processed/
+*.duckdb
+*.duckdb.wal
+
+# Secrets / local
+.env
+.env.*
+.DS_Store
+
+# Models trained locally (sample metrics JSON is tracked)
+models/*.joblib
+models/*.pkl
+!models/.gitkeep

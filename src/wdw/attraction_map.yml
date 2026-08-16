@@ -1,0 +1,127 @@
+# Maps TouringPlans historical datasets to live ThemeParks.wiki entities.
+# Historical models stay on this ~14-attraction set. The live board uses all rides.
+
+source: "TouringPlans.com Disney World Ride Wait Time Datasets"
+source_url: "https://touringplans.com/walt-disney-world/crowd-calendar#DataSets"
+mirror: "https://github.com/LucyMcGowan/touringplans/tree/master/data-raw"
+
+parks:
+  magic_kingdom:
+    name: Magic Kingdom Park
+    short: MK
+    entity_id: 75ea578a-adc8-4116-a54d-dccb60765ef9
+  epcot:
+    name: EPCOT
+    short: EP
+    entity_id: 47f90d2c-e191-4239-a466-5892ef59a88b
+  hollywood_studios:
+    name: Disney's Hollywood Studios
+    short: HS
+    entity_id: 288747d1-8b4f-4a64-867e-ea7c9b27bad8
+  animal_kingdom:
+    name: Disney's Animal Kingdom Theme Park
+    short: AK
+    entity_id: 1c84a229-8862-4648-9c71-378ddd2c7693
+
+attractions:
+  - key: pirates_of_caribbean
+    file: pirates_of_caribbean.csv
+    name: Pirates of the Caribbean
+    park: magic_kingdom
+    live_entity_id: 352feb94-e52e-45eb-9c92-e4b44c6b1a9d
+    live_name: Pirates of the Caribbean
+
+  - key: seven_dwarfs_train
+    file: seven_dwarfs_train.csv
+    name: Seven Dwarfs Mine Train
+    park: magic_kingdom
+    live_entity_id: 9d4d5229-7142-44b6-b4fb-528920969a2c
+    live_name: Seven Dwarfs Mine Train
+
+  - key: splash_mountain
+    file: splash_mountain.csv
+    name: Splash Mountain
+    park: magic_kingdom
+    live_entity_id: 73cb9445-0695-47a3-87ce-d08ae36b5f3c
+    live_name: Tiana's Bayou Adventure
+    note: Reimagined as Tiana's Bayou Adventure in 2024. Historical waits are Splash Mountain.
+
+  - key: soarin
+    file: soarin.csv
+    name: Soarin' Around the World
+    park: epcot
+    live_entity_id: 81b15dfd-cf6a-466f-be59-3dd65d2a2807
+    live_name: Soarin' Across America
+    note: Film updated to Soarin' Across America. Historical waits are Soarin' Around the World.
+
+  - key: spaceship_earth
+    file: spaceship_earth.csv
+    name: Spaceship Earth
+    park: epcot
+    live_entity_id: 480fde8f-fe58-4bfb-b3ab-052a39d4db7c
+    live_name: Spaceship Earth
+
+  - key: rock_n_rollercoaster
+    file: rock_n_rollercoaster.csv
+    name: Rock 'n' Roller Coaster Starring Aerosmith
+    park: hollywood_studios
+    live_entity_id: e516f303-e82d-4fd3-8fbf-8e6ab624cf89
+    live_name: Rock ’n’ Roller Coaster Starring The Muppets
+    note: Overlay updated to The Muppets. Historical waits are the Aerosmith overlay.
+
+  - key: toy_story_mania
+    file: toy_story_mania.csv
+    name: Toy Story Mania!
+    park: hollywood_studios
+    live_entity_id: 20b5daa8-e1ea-436f-830c-2d7d18d929b5
+    live_name: Toy Story Mania!
+
+  - key: slinky_dog
+    file: slinky_dog.csv
+    name: Slinky Dog Dash
+    park: hollywood_studios
+    live_entity_id: 399aa0a1-98e2-4d2b-b297-2b451e9665e1
+    live_name: Slinky Dog Dash
+
+  - key: alien_saucers
+    file: alien_saucers.csv
+    name: Alien Swirling Saucers
+    park: hollywood_studios
+    live_entity_id: d56506e2-6ad3-443a-8065-fea37987248d
+    live_name: Alien Swirling Saucers
+
+  - key: dinosaur
+    file: dinosaur.csv
+    name: DINOSAUR
+    park: animal_kingdom
+    live_entity_id: null
+    live_name: null
+    note: DINOSAUR has closed. Historical waits have no live counterpart.
+
+  - key: expedition_everest
+    file: expedition_everest.csv
+    name: Expedition Everest - Legend of the Forbidden Mountain
+    park: animal_kingdom
+    live_entity_id: 64a6915f-a835-4226-ba5c-8389fc4cade3
+    live_name: Expedition Everest - Legend of the Forbidden Mountain
+
+  - key: kilimanjaro_safaris
+    file: kilimanjaro_safaris.csv
+    name: Kilimanjaro Safaris
+    park: animal_kingdom
+    live_entity_id: 32e01181-9a5f-4936-8a77-0dace1de836c
+    live_name: Kilimanjaro Safaris
+
+  - key: navi_river
+    file: navi_river.csv
+    name: Na'vi River Journey
+    park: animal_kingdom
+    live_entity_id: 7a5af3b7-9bc1-4962-92d0-3ea9c9ce35f0
+    live_name: Na'vi River Journey
+
+  - key: flight_of_passage
+    file: flight_of_passage.csv
+    name: Avatar Flight of Passage
+    park: animal_kingdom
+    live_entity_id: 24cf863c-b6ba-4826-a056-0b698989cbf7
+    live_name: Avatar Flight of Passage

@@ -1,0 +1,123 @@
+{
+  "n_train": 9240,
+  "n_test": 2520,
+  "train_start": "2018-01-01 00:00:00",
+  "train_end": "2018-02-13 00:00:00",
+  "test_start": "2018-02-14 00:00:00",
+  "test_end": "2018-02-25 00:00:00",
+  "mae_minutes": 3.18,
+  "naive_mae_minutes": 3.45,
+  "rmse_minutes": 4.01,
+  "mae_lift_vs_naive": 0.27,
+  "feature_importance": {
+    "attraction_key": 15.175029580502246,
+    "park_key": 2.0479416851578813,
+    "hour": 10.675279260895993,
+    "weekday": 0.9262782752479783,
+    "month": 0.0,
+    "is_weekend": 0.0,
+    "is_holiday": 0.0,
+    "early_entry": 0.029556256483479083
+  },
+  "by_attraction": [
+    {
+      "attraction_name": "Alien Swirling Saucers",
+      "mae": 2.994337581535249,
+      "naive_mae": 3.4127777777777775,
+      "bias": -0.1818908306043293,
+      "n": 180
+    },
+    {
+      "attraction_name": "Avatar Flight of Passage",
+      "mae": 3.140773685922549,
+      "naive_mae": 3.2827777777777785,
+      "bias": 0.27276313414324943,
+      "n": 180
+    },
+    {
+      "attraction_name": "DINOSAUR",
+      "mae": 3.192996827471379,
+      "naive_mae": 3.567777777777778,
+      "bias": 0.5630390526772118,
+      "n": 180
+    },
+    {
+      "attraction_name": "Expedition Everest - Legend of the Forbidden Mountain",
+      "mae": 3.4335352299537414,
+      "naive_mae": 3.9266666666666663,
+      "bias": 0.5031119723201631,
+      "n": 180
+    },
+    {
+      "attraction_name": "Kilimanjaro Safaris",
+      "mae": 3.199370321664648,
+      "naive_mae": 3.5694444444444446,
+      "bias": 0.2438411395394328,
+      "n": 180
+    },
+    {
+      "attraction_name": "Na'vi River Journey",
+      "mae": 3.474732263234532,
+      "naive_mae": 3.7266666666666666,
+      "bias": -0.035766437120118975,
+      "n": 180
+    },
+    {
+      "attraction_name": "Pirates of the Caribbean",
+      "mae": 3.1326759021496824,
+      "naive_mae": 3.387222222222222,
+      "bias": -0.18908592993353238,
+      "n": 180
+    },
+    {
+      "attraction_name": "Rock 'n' Roller Coaster Starring Aerosmith",
+      "mae": 3.3296941005251353,
+      "naive_mae": 3.623333333333333,
+      "bias": 0.005379711462922386,
+      "n": 180
+    },
+    {
+      "attraction_name": "Seven Dwarfs Mine Train",
+      "mae": 3.1474201868475826,
+      "naive_mae": 3.365,
+      "bias": 0.09950438759330833,
+      "n": 180
+    },
+    {
+      "attraction_name": "Slinky Dog Dash",
+      "mae": 3.1560252048508066,
+      "naive_mae": 3.404444444444444,
+      "bias": 0.45467567697229944,
+      "n": 180
+    },
+    {
+      "attraction_name": "Soarin' Around the World",
+      "mae": 3.3074247211407806,
+      "naive_mae": 3.4622222222222225,
+      "bias": -0.2895326374577425,
+      "n": 180
+    },
+    {
+      "attraction_name": "Spaceship Earth",
+      "mae": 2.962837068713014,
+      "naive_mae": 3.017777777777778,
+      "bias": -0.5091852363249475,
+      "n": 180
+    },
+    {
+      "attraction_name": "Splash Mountain",
+      "mae": 3.0886272963032892,
+      "naive_mae": 3.2061111111111114,
+      "bias": 0.12098326897045834,
+      "n": 180
+    },
+    {
+      "attraction_name": "Toy Story Mania!",
+      "mae": 3.0174378725264974,
+      "naive_mae": 3.3883333333333336,
+      "bias": -0.24828337080815344,
+      "n": 180
+    }
+  ],
+  "notes": "This is an explainable baseline, not a claim to beat Disney's own wait system. Features are hour, weekday, month, holiday, early entry, attraction, and park."
+}
