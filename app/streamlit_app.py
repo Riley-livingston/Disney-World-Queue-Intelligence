@@ -644,16 +644,19 @@ def render_return_pressure(attractions: pd.DataFrame, park: str) -> None:
         fig.add_hline(
             y=STACK_THRESHOLD,
             line_dash="dash",
-            line_color=SLATE,
-            line_width=1.5,
+            line_color=NAVY,
+            line_width=2,
             annotation_text=f"{STACK_THRESHOLD}+ rides overlapping",
-            annotation_position="top left",
-            annotation_font_color=SLATE,
-            annotation_font_size=12,
+            annotation_position="top right",
+            annotation_font=dict(size=15, color=NAVY, family="Georgia, serif"),
+            annotation_bgcolor="rgba(247,241,230,0.96)",
+            annotation_bordercolor=GOLD,
+            annotation_borderwidth=1,
+            annotation_borderpad=8,
         )
         fig.update_layout(title_text="", barmode="group", bargap=0.25)
         fig = style_ops_bar(fig)
-        fig.update_layout(margin=dict(l=8, r=16, t=36, b=64))
+        fig.update_layout(margin=dict(l=8, r=24, t=48, b=64))
         st.plotly_chart(fig, width="stretch")
         if overlap.empty:
             st.caption(
