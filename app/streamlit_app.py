@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -306,6 +307,11 @@ def live_attractions(live: pd.DataFrame) -> pd.DataFrame:
     if "standby_wait" in work.columns:
         work["standby_wait"] = pd.to_numeric(work["standby_wait"], errors="coerce")
     return work
+
+
+def on_streamlit_cloud() -> bool:
+    """Streamlit Community Cloud clones the repo under /mount/src."""
+    return Path("/mount/src").exists() or os.getenv("STREAMLIT_RUNTIME") == "cloud"
 
 
 def filter_park(frame: pd.DataFrame, park: str) -> pd.DataFrame:
@@ -1361,7 +1367,7 @@ def main() -> None:
         "Not affiliated with The Walt Disney Company. Historical waits: TouringPlans.com. "
         f"Live waits: {CREDIT}."
     )
-    if using_sample and not hourly.empty:
+    if using_sample and not hourly.empty and not on_streamlit_cloud():
         st.sidebar.info("Using the compact sample warehouse. Run `wdw-ingest-history` and `wdw-build` for the full series.")
 
     if page == "Mission control":
