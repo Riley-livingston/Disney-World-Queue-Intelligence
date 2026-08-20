@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+import importlib
 import json
 import os
 import sys
@@ -18,6 +19,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
+from wdw import weather as _weather
 from wdw.config import SAMPLE_HOURLY_PARQUET
 from wdw.eastern import PARK_DAY_HOURS, format_clock, format_series, hour_et_category, hour_label, now_eastern, park_day_labels
 from wdw.ingest_live import latest_live_frame
@@ -43,15 +45,15 @@ from wdw.typical import (
     typical_day_curve,
 )
 from wdw.warehouse import load_hourly
-from wdw.weather import (
-    PARK_POINTS,
-    WDW_LATITUDE,
-    WDW_LONGITUDE,
-    WEATHER_CREDIT,
-    WeatherError,
-    fetch_radar_frames,
-    fetch_wdw_weather,
-)
+
+_weather = importlib.reload(_weather)
+PARK_POINTS = _weather.PARK_POINTS
+WDW_LATITUDE = _weather.WDW_LATITUDE
+WDW_LONGITUDE = _weather.WDW_LONGITUDE
+WEATHER_CREDIT = _weather.WEATHER_CREDIT
+WeatherError = _weather.WeatherError
+fetch_radar_frames = _weather.fetch_radar_frames
+fetch_wdw_weather = _weather.fetch_wdw_weather
 
 NAVY = "#12264A"
 ROYAL = "#1B4F9C"
