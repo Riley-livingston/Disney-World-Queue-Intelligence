@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import html
+import json
 import os
 import sys
 from pathlib import Path
@@ -14,7 +16,6 @@ if str(SRC) not in sys.path:
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-import pydeck as pdk
 import streamlit as st
 
 from wdw.config import SAMPLE_HOURLY_PARQUET
@@ -48,6 +49,7 @@ from wdw.weather import (
     WDW_LONGITUDE,
     WEATHER_CREDIT,
     WeatherError,
+    fetch_radar_frames,
     fetch_wdw_weather,
 )
 
@@ -128,6 +130,55 @@ st.markdown(
       }}
       section[data-testid="stSidebar"] [data-testid="stCaption"] {{
         color: #C9D3E0 !important;
+      }}
+      section[data-testid="stSidebar"] .wx-hold {{
+        background: {CREAM};
+        border: 1px solid rgba(240,193,74,0.55);
+        border-left: 4px solid {GOLD};
+        border-radius: 0 10px 10px 0;
+        padding: 0.7rem 0.8rem 0.8rem;
+        margin: 0.4rem 0 0.75rem;
+      }}
+      section[data-testid="stSidebar"] .wx-hold-watch {{
+        border-left-color: #E87722;
+      }}
+      section[data-testid="stSidebar"] .wx-hold-alert {{
+        border-left-color: {STUDIO_RED};
+      }}
+      section[data-testid="stSidebar"] .wx-hold-label {{
+        color: {NAVY} !important;
+        font-family: Georgia, "Palatino Linotype", Palatino, serif;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        font-size: 0.72rem;
+        margin: 0 0 0.35rem;
+      }}
+      section[data-testid="stSidebar"] .wx-hold p {{
+        color: {NAVY} !important;
+        font-size: 0.82rem;
+        line-height: 1.45;
+        margin: 0;
+      }}
+      section[data-testid="stSidebar"] .stButton button {{
+        background: linear-gradient(180deg, {GOLD} 0%, #D4A84A 100%) !important;
+        color: {NAVY} !important;
+        border: 1px solid {GOLD} !important;
+        border-radius: 99px !important;
+        font-family: Georgia, "Palatino Linotype", Palatino, serif !important;
+        font-size: 0.78rem !important;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        font-weight: 600 !important;
+        padding: 0.45rem 0.8rem !important;
+      }}
+      section[data-testid="stSidebar"] .stButton button p,
+      section[data-testid="stSidebar"] .stButton button span {{
+        color: {NAVY} !important;
+      }}
+      section[data-testid="stSidebar"] .stButton button:hover {{
+        background: {CREAM} !important;
+        border-color: {GOLD} !important;
+        color: {NAVY} !important;
       }}
       div[data-testid="stRadio"] label {{
         padding: 0.25rem 0.15rem;
@@ -214,29 +265,6 @@ st.markdown(
         z-index: 1;
         padding-top: 1.35rem !important;
         padding-bottom: 1rem !important;
-      }}
-      div[data-testid="stDeckGlJsonChart"] {{
-        position: fixed !important;
-        inset: 0 !important;
-        width: 100vw !important;
-        height: 100vh !important;
-        opacity: 0.32;
-        pointer-events: none !important;
-        z-index: 0 !important;
-      }}
-      div[data-testid="stDeckGlJsonChart"] canvas {{
-        width: 100% !important;
-        height: 100vh !important;
-      }}
-      .element-container:has(div[data-testid="stDeckGlJsonChart"]) {{
-        position: fixed !important;
-        inset: 0 !important;
-        height: 0 !important;
-        min-height: 0 !important;
-        margin: 0 !important;
-        padding: 0 !important;
-        overflow: visible !important;
-        z-index: 0;
       }}
       [data-testid="stDataFrame"] {{
         background: rgba(255,253,248,0.96);
@@ -444,73 +472,85 @@ def typical_day_park_figure(slice_: pd.DataFrame, park: str) -> go.Figure:
     return fig
 
 
-def render_radar_background(tile_url: str | None) -> None:
-    """Faint RainViewer overlay, cropped to the four Orlando parks, not statewide Florida."""
-    layers = []
-    if tile_url:
-        layers.append(
-            pdk.Layer(
-                "TileLayer",
-                data=tile_url,
-                min_zoom=5,
-                max_zoom=12,
-                tile_size=256,
-                opacity=0.55,
-            )
-        )
-    layers.append(
-        pdk.Layer(
-            "ScatterplotLayer",
-            data=PARK_POINTS,
-            get_position=["lon", "lat"],
-            get_radius=220,
-            radius_min_pixels=5,
-            radius_max_pixels=10,
-            get_fill_color=[240, 193, 74, 210],
-            get_line_color=[18, 38, 74, 255],
-            line_width_min_pixels=1,
-            stroked=True,
-            filled=True,
-        )
+def _radar_frame_payload(frames: list | None) -> list[dict[str, str]]:
+    payload = []
+    for item in frames or []:
+        if isinstance(item, str) and item:
+            payload.append({"url": item, "time_et": ""})
+        elif isinstance(item, dict) and item.get("url"):
+            payload.append({"url": str(item["url"]), "time_et": str(item.get("time_et") or "")})
+    return payload
+
+
+def render_radar_map(frames: list | None = None) -> None:
+    """Animated RainViewer overlay zoomed to the four parks."""
+    payload = _radar_frame_payload(frames)
+    if not payload:
+        st.warning("RainViewer radar is unavailable this hour.")
+        return
+    parks_js = json.dumps(PARK_POINTS)
+    frames_js = json.dumps(payload)
+    html_map = f"""
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    <div style="position:relative;height:480px;border-radius:10px;overflow:hidden;border:1px solid #EDE4D4;">
+      <div id="wdw-radar" style="height:480px;"></div>
+      <div id="wdw-radar-time" style="position:absolute;top:12px;left:12px;z-index:1000;background:#12264A;color:#F7F1E6;padding:8px 12px;border-radius:8px;font:600 14px/1.3 system-ui,sans-serif;letter-spacing:0.03em;border:1px solid #F0C14A;"></div>
+    </div>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+      const frames = {frames_js};
+      const parks = {parks_js};
+      const stamp = document.getElementById("wdw-radar-time");
+      const map = L.map("wdw-radar", {{ maxZoom: 12 }}).setView([{WDW_LATITUDE}, {WDW_LONGITUDE}], 11);
+      L.tileLayer("https://{{s}}.basemaps.cartocdn.com/light_all/{{z}}/{{x}}/{{y}}{{r}}.png", {{
+        attribution: "&copy; OpenStreetMap &copy; CARTO",
+        subdomains: "abcd",
+        maxZoom: 12
+      }}).addTo(map);
+      let radar = L.tileLayer(frames[frames.length - 1].url, {{
+        opacity: 0.8,
+        tileSize: 256,
+        maxNativeZoom: 7,
+        maxZoom: 12
+      }}).addTo(map);
+      parks.forEach((park) => {{
+        L.circleMarker([park.lat, park.lon], {{
+          radius: 7,
+          color: "#12264A",
+          weight: 2,
+          fillColor: "#F0C14A",
+          fillOpacity: 1
+        }}).addTo(map).bindTooltip(park.name, {{ permanent: true, direction: "top", offset: [0, -8] }});
+      }});
+      function setFrame(i) {{
+        radar.setUrl(frames[i].url);
+        stamp.textContent = frames[i].time_et || "";
+      }}
+      let index = frames.length - 1;
+      setFrame(index);
+      setTimeout(() => map.invalidateSize(), 200);
+      if (frames.length > 1) {{
+        setInterval(() => {{
+          index = (index + 1) % frames.length;
+          setFrame(index);
+        }}, 450);
+      }}
+    </script>
+    """
+    st.components.v1.html(html_map, height=500)
+    st.caption(
+        "RainViewer observed radar, zoomed to Magic Kingdom, EPCOT, Hollywood Studios, and Animal Kingdom. "
+        "Clock is Eastern Time for each frame. The loop is about the last hour. Gold dots mark the parks. "
+        f"Not a Disney weather product. {WEATHER_CREDIT}"
     )
-    layers.append(
-        pdk.Layer(
-            "TextLayer",
-            data=PARK_POINTS,
-            get_position=["lon", "lat"],
-            get_text="name",
-            get_size=13,
-            get_color=[18, 38, 74, 200],
-            get_pixel_offset=[0, -16],
-        )
-    )
-    deck = pdk.Deck(
-        layers=layers,
-        initial_view_state=pdk.ViewState(
-            latitude=WDW_LATITUDE,
-            longitude=WDW_LONGITUDE,
-            zoom=12.15,
-            pitch=0,
-            bearing=0,
-        ),
-        map_provider="carto",
-        map_style="light",
-        tooltip={"text": "{name}"},
-    )
-    st.pydeck_chart(deck, width="stretch")
-    st.markdown(
-        f"""
-        <style>
-          .stApp {{
-            background:
-              radial-gradient(ellipse at 12% -10%, rgba(240,193,74,0.12), transparent 42%),
-              rgba(247,241,230,0.46) !important;
-          }}
-          [data-testid="stHeader"] {{ background: rgba(247,241,230,0.72) !important; }}
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
+
+
+@st.dialog("Resort-area radar", width="large")
+def show_radar_dialog(wx: dict | None = None) -> None:
+    frames = None if wx is None else wx.get("radar_frames")
+    if not frames:
+        frames = fetch_radar_frames()
+    render_radar_map(frames)
 
 
 def load_weather() -> dict | None:
@@ -520,9 +560,49 @@ def load_weather() -> dict | None:
         return None
 
 
-def render_weather_strip(wx: dict | None) -> None:
+def weather_hold_status(wx: dict) -> str:
+    if wx.get("hold_status") in {"alert", "watch", "clear"}:
+        return str(wx["hold_status"])
+    if wx.get("thunderstorm"):
+        return "alert"
+    text = str(wx.get("implication") or "")
+    if text.startswith("Storm") or (text.startswith("NWS") and "warning" in text.lower()):
+        return "alert"
+    if text.startswith("Rain") or text.startswith("Gusty") or text.startswith("NWS"):
+        return "watch"
+    return "clear"
+
+
+def weather_hold_label(wx: dict, status: str) -> str:
+    if wx.get("hold_label"):
+        return str(wx["hold_label"])
+    if status == "alert":
+        return "Storm risk"
+    if status == "watch":
+        return "Watch"
+    return "None"
+
+
+def _sidebar_hold_card(label: str, body: str, kind: str = "clear") -> None:
+    modifier = {"watch": "wx-hold-watch", "alert": "wx-hold-alert"}.get(kind, "")
+    st.sidebar.markdown(
+        f'<div class="wx-hold {modifier}">'
+        f'<div class="wx-hold-label">{html.escape(label)}</div>'
+        f"<p>{html.escape(body)}</p>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def render_sidebar_weather(wx: dict | None) -> None:
+    st.sidebar.markdown(
+        f'<p style="color:{GOLD}; letter-spacing:0.14em; font-size:0.72rem; text-transform:uppercase;">Weather hold</p>',
+        unsafe_allow_html=True,
+    )
     if wx is None:
-        st.caption("Weather feed unavailable.")
+        _sidebar_hold_card("Unavailable", "Weather feed is down this hour. Radar may still open.", "watch")
+        if st.sidebar.button("View radar", use_container_width=True, key="view-radar"):
+            show_radar_dialog(None)
         return
     current = wx["current"]
     temp = current.get("temp_f")
@@ -538,14 +618,33 @@ def render_weather_strip(wx: dict | None) -> None:
         )
         if part
     )
-    st.caption(summary)
-    if wx.get("thunderstorm") or (wx.get("alerts") or []):
-        st.error(wx.get("implication") or "NWS weather alert in effect.")
+    if summary:
+        st.sidebar.caption(summary)
+    status = weather_hold_status(wx)
+    implication = wx.get("implication") or (
+        "No weather hold indicated from this forecast. Keep watching radar through the afternoon."
+    )
+    if status == "alert":
+        _sidebar_hold_card(weather_hold_label(wx, status), implication, "alert")
         for alert in wx.get("alerts") or []:
-            st.warning(f"**NWS {alert['event']}**: {alert['headline']}")
-    elif wx.get("implication"):
-        st.caption(wx["implication"])
-    st.caption(WEATHER_CREDIT)
+            headline = alert.get("headline") or alert.get("event") or "National Weather Service alert"
+            _sidebar_hold_card(f"NWS {alert.get('event') or 'Alert'}", headline, "alert")
+    elif status == "watch":
+        _sidebar_hold_card(weather_hold_label(wx, status), implication, "watch")
+        for alert in wx.get("alerts") or []:
+            if alert.get("kind") == "clear":
+                continue
+            headline = alert.get("headline") or alert.get("event") or "National Weather Service alert"
+            _sidebar_hold_card(f"NWS {alert.get('event') or 'Alert'}", headline, "watch")
+    else:
+        _sidebar_hold_card(
+            "None",
+            "No hold indicated from this forecast. Keep watching radar through the afternoon.",
+            "clear",
+        )
+    if st.sidebar.button("View radar", use_container_width=True, key="view-radar"):
+        show_radar_dialog(wx)
+    st.sidebar.caption(WEATHER_CREDIT)
 
 
 def _return_window_label(start, end) -> str:
@@ -798,21 +897,17 @@ def render_return_pressure(attractions: pd.DataFrame, park: str) -> None:
 def page_mission_control(park: str) -> None:
     st.subheader("Mission control")
     st.caption(
-        "Park-wide picture this hour: weather holds, downs, waits running hot vs the historical baseline, "
-        "severe standby, and Lightning Lane tightness. Not an official Disney operations system."
+        "Park-wide picture this hour: downs, waits running hot vs the historical baseline, "
+        "severe standby, and Lightning Lane tightness. Weather hold and radar are in the sidebar. "
+        "Not an official Disney operations system."
     )
-    wx = load_weather()
-    if wx is not None:
-        render_radar_background(wx.get("radar_tiles"))
     live, source = load_live_board()
     if live.empty:
         st.warning("Live ThemeParks.wiki data is unavailable. Park-day and posted-wait pages still work from history.")
-        render_weather_strip(wx)
         return
     attractions = filter_park(live_attractions(live), park)
     if attractions.empty:
         st.info("No attractions in this park scope.")
-        render_weather_strip(wx)
         return
     if source == "snapshot":
         st.info("Showing the last saved snapshot because a live fetch failed.")
@@ -836,7 +931,7 @@ def page_mission_control(park: str) -> None:
         c4.metric("Longest standby", "n/a")
 
     st.markdown("## Attention queue")
-    st.caption("What to handle first this hour. Radar is behind the page, zoomed to the four parks.")
+    st.caption("What to handle first this hour.")
     if queue.empty:
         st.success("No downs, severe standbys, or headliners running 15+ minutes hot vs expected.")
     else:
@@ -866,8 +961,6 @@ def page_mission_control(park: str) -> None:
         st.caption(
             "Expected wait is the TouringPlans historical median for this attraction, hour, and weekday."
         )
-
-    render_weather_strip(wx)
 
     left, right = st.columns(2)
     with left:
@@ -1361,6 +1454,8 @@ def main() -> None:
         "View",
         ["Mission control", "Park day plan", "Posted-wait integrity"],
     )
+    st.sidebar.markdown("---")
+    render_sidebar_weather(load_weather())
     st.sidebar.markdown("---")
     st.sidebar.caption(f"Eastern Time {clock}")
     st.sidebar.caption(

@@ -1,6 +1,7 @@
 """Live weather for the Walt Disney World resort area (Lake Buena Vista, FL).
 
-Forecast is Open-Meteo. Alerts and radar are National Weather Service (Melbourne, KMLB).
+Forecast is Open-Meteo. Radar is RainViewer over the four parks.
+Alerts are NWS products that cover Orange and Osceola counties.
 This is not a Disney weather product.
 """
 
@@ -12,9 +13,9 @@ import httpx
 import pandas as pd
 
 from wdw.config import MAX_RETRIES, TIMEZONE
-from wdw.eastern import hour_label
+from wdw.eastern import format_clock, hour_label
 
-WEATHER_CREDIT = "Forecast: Open-Meteo. Radar: RainViewer. Alerts: National Weather Service."
+WEATHER_CREDIT = "Forecast: Open-Meteo. Radar: RainViewer. Alerts: NWS for Lake Buena Vista."
 WDW_LATITUDE = 28.3852
 WDW_LONGITUDE = -81.5639
 OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
@@ -72,7 +73,62 @@ def is_thunderstorm(code: int | None) -> bool:
     return int(code) in THUNDERSTORM_CODES
 
 
-def ops_implication(current: dict[str, Any], hourly: pd.DataFrame) -> str:
+def nws_event_kind(event: str) -> str:
+    """Map an NWS product name to alert, watch, or clear for a park-hold brief."""
+    name = (event or "").lower()
+    if not name:
+        return "clear"
+    if any(token in name for token in ("heat", "dense fog", "frost", "freeze", "air quality", "rip current")):
+        return "clear"
+    if any(
+        token in name
+        for token in (
+            "tornado warning",
+            "severe thunderstorm warning",
+            "extreme wind warning",
+        )
+    ):
+        return "alert"
+    if "warning" in name and any(token in name for token in ("thunderstorm", "tornado", "flood")):
+        return "alert"
+    if "special weather statement" in name:
+        return "watch"
+    if "watch" in name and any(token in name for token in ("thunderstorm", "tornado", "flood")):
+        return "watch"
+    return "watch"
+
+
+def nws_hold_status(alerts: list[dict] | None) -> str:
+    kinds = [nws_event_kind(str(alert.get("event") or "")) for alert in (alerts or [])]
+    if "alert" in kinds:
+        return "alert"
+    if "watch" in kinds:
+        return "watch"
+    return "clear"
+
+
+def _nws_event_names(alerts: list[dict]) -> str:
+    names = []
+    for alert in alerts or []:
+        event = str(alert.get("event") or "").strip()
+        if event and event not in names:
+            names.append(event)
+    return ", ".join(names)
+
+
+def ops_implication(current: dict[str, Any], hourly: pd.DataFrame, alerts: list[dict] | None = None) -> str:
+    nws = nws_hold_status(alerts)
+    events = _nws_event_names(alerts or [])
+    if nws == "alert":
+        return (
+            f"NWS {events} for the resort area. Outdoor queues, shows, and boats may suspend under a 30/30 lightning hold. "
+            "This is not an official Disney hold. Watch radar."
+        )
+    if nws == "watch":
+        return (
+            f"NWS {events} for the area. That is a heads-up, not automatically a park lightning hold. "
+            "Watch radar through this cycle."
+        )
     code = current.get("weather_code")
     precip_now = current.get("precipitation") or 0
     next_precip = 0.0
@@ -133,17 +189,42 @@ def parse_open_meteo(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+RESORT_AREA_TOKENS = ("orange", "osceola", "lake buena vista", "bay lake", "orlando")
+
+
+def covers_wdw_resort(area_desc: str | None) -> bool:
+    """Keep alerts that name the park counties. Drop Brevard/Melbourne-only products."""
+    text = (area_desc or "").lower()
+    if not text:
+        return True
+    return any(token in text for token in RESORT_AREA_TOKENS)
+
+
+def headline_for_resort(headline: str) -> str:
+    """NWS Melbourne is the forecast office for Orlando. Do not read that as Melbourne Beach."""
+    text = headline or ""
+    text = text.replace("by NWS Melbourne FL", "for the Lake Buena Vista area")
+    text = text.replace("NWS Melbourne FL", "NWS (Lake Buena Vista area)")
+    return text
+
+
 def parse_nws_alerts(payload: dict[str, Any]) -> list[dict[str, str]]:
     alerts = []
     for feature in payload.get("features") or []:
         props = feature.get("properties") or {}
-        headline = props.get("headline") or props.get("event") or "NWS alert"
+        area = props.get("areaDesc") or ""
+        if not covers_wdw_resort(area):
+            continue
+        event = props.get("event") or "Alert"
+        headline = headline_for_resort(props.get("headline") or event)
         alerts.append(
             {
-                "event": props.get("event") or "Alert",
+                "event": event,
                 "severity": props.get("severity") or "",
                 "headline": headline,
+                "area": area,
                 "instruction": (props.get("instruction") or "")[:400],
+                "kind": nws_event_kind(str(event)),
             }
         )
     return alerts
@@ -193,40 +274,120 @@ def fetch_nws_alerts(client: httpx.Client | None = None) -> list[dict[str, str]]
             http.close()
 
 
-def parse_rainviewer_tile_url(payload: dict[str, Any]) -> str | None:
-    """Latest observed radar tiles, transparent where there is no rain."""
+def _rainviewer_host(payload: dict[str, Any]) -> str:
     host = str(payload.get("host") or "https://tilecache.rainviewer.com").rstrip("/")
-    radar = payload.get("radar") or {}
-    past = radar.get("past") or []
-    frame = past[-1] if past else None
-    if not frame:
-        nowcast = radar.get("nowcast") or []
-        frame = nowcast[-1] if nowcast else None
-    if not frame or not frame.get("path"):
-        return None
-    path = str(frame["path"])
+    if host.startswith("//"):
+        host = f"https:{host}"
+    elif not host.startswith("http"):
+        host = f"https://{host}"
+    return host
+
+
+def _rainviewer_tile_template(host: str, path: str) -> str:
     if not path.startswith("/"):
         path = f"/{path}"
-    return f"{host}{path}/256/{{z}}/{{x}}/{{y}}/6/1_1.png"
+    # Color 2 is Universal Blue, the free RainViewer scheme. Native tiles stop at zoom 7.
+    return f"{host}{path}/256/{{z}}/{{x}}/{{y}}/2/1_1.png"
 
 
-def fetch_radar_tile_url(client: httpx.Client | None = None) -> str | None:
+def _rainviewer_unix(frame: dict[str, Any]) -> int | None:
+    raw = frame.get("time")
+    if raw is not None:
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            pass
+    tail = str(frame.get("path") or "").rstrip("/").split("/")[-1]
+    if tail.isdigit() and len(tail) >= 10:
+        return int(tail)
+    return None
+
+
+def _radar_time_et(unix: int | None) -> str:
+    if unix is None:
+        return ""
+    return format_clock(pd.Timestamp(unix, unit="s", tz="UTC"))
+
+
+def parse_rainviewer_frames(payload: dict[str, Any], max_frames: int = 10) -> list[dict[str, str]]:
+    """Recent observed radar frames, oldest to newest, with Eastern clock labels."""
+    host = _rainviewer_host(payload)
+    radar = payload.get("radar") or {}
+    past = [frame for frame in (radar.get("past") or []) if frame.get("path")]
+    if not past:
+        past = [frame for frame in (radar.get("nowcast") or []) if frame.get("path")]
+    if not past:
+        return []
+    frames = []
+    for frame in past[-max_frames:]:
+        unix = _rainviewer_unix(frame)
+        frames.append(
+            {
+                "url": _rainviewer_tile_template(host, str(frame["path"])),
+                "time_et": _radar_time_et(unix),
+            }
+        )
+    return frames
+
+
+def parse_rainviewer_tile_url(payload: dict[str, Any]) -> str | None:
+    """Latest observed radar tiles, transparent where there is no rain."""
+    frames = parse_rainviewer_frames(payload, max_frames=1)
+    return frames[-1]["url"] if frames else None
+
+
+def fetch_radar_frames(client: httpx.Client | None = None) -> list[dict[str, str]]:
     http = client or httpx.Client(timeout=15.0)
     owns = client is None
     try:
         response = http.get(RAINVIEWER_MAPS_URL)
         response.raise_for_status()
-        return parse_rainviewer_tile_url(response.json())
+        return parse_rainviewer_frames(response.json())
     except (httpx.HTTPError, ValueError, TypeError):
-        return None
+        return []
     finally:
         if owns:
             http.close()
 
 
+def fetch_radar_tile_url(client: httpx.Client | None = None) -> str | None:
+    frames = fetch_radar_frames(client)
+    return frames[-1]["url"] if frames else None
+
+
+def attach_hold_brief(forecast: dict[str, Any]) -> dict[str, Any]:
+    """Add hold_status and hold_label so the app does not re-import classifiers."""
+    alerts = forecast.get("alerts") or []
+    for alert in alerts:
+        alert["kind"] = nws_event_kind(str(alert.get("event") or ""))
+    nws = nws_hold_status(alerts)
+    implication = str(forecast.get("implication") or "")
+    if forecast.get("thunderstorm") or nws == "alert" or implication.startswith("Storm"):
+        status = "alert"
+    elif nws == "watch" or implication.startswith("Rain") or implication.startswith("Gusty"):
+        status = "watch"
+    else:
+        status = "clear"
+    ranked = sorted(
+        alerts,
+        key=lambda row: {"alert": 0, "watch": 1, "clear": 2}.get(str(row.get("kind") or "clear"), 2),
+    )
+    label = "None"
+    if status == "alert":
+        label = "Storm risk"
+    elif status == "watch":
+        label = "Watch"
+    if ranked and str(ranked[0].get("kind") or "clear") != "clear":
+        label = str(ranked[0].get("event") or label)
+    forecast["hold_status"] = status
+    forecast["hold_label"] = label
+    return forecast
+
+
 def fetch_wdw_weather() -> dict[str, Any]:
     forecast = fetch_open_meteo()
     forecast["alerts"] = fetch_nws_alerts()
-    forecast["implication"] = ops_implication(forecast["current"], forecast["hourly"])
-    forecast["radar_tiles"] = fetch_radar_tile_url()
-    return forecast
+    forecast["implication"] = ops_implication(forecast["current"], forecast["hourly"], forecast["alerts"])
+    forecast["radar_frames"] = fetch_radar_frames()
+    forecast["radar_tiles"] = forecast["radar_frames"][-1]["url"] if forecast["radar_frames"] else None
+    return attach_hold_brief(forecast)
