@@ -11,9 +11,10 @@ __pycache__/
 dist/
 build/
 
-# Data (large CSVs and local warehouse — sample parquet is tracked)
+# Data (raw CSVs stay local. Full hourly parquet is tracked for Streamlit Cloud.)
 data/raw/
-data/processed/
+data/processed/*
+!data/processed/hourly.parquet
 *.duckdb
 *.duckdb.wal
 

@@ -36,13 +36,13 @@ Live fetches respect ThemeParks.wiki’s cache: refresh no more than once every 
 
 ## Findings
 
-On the compact sample warehouse (and in the same direction as published TouringPlans research on posted vs actual waits):
+On the full hourly warehouse (and in the same direction as published TouringPlans research on posted vs actual waits):
 
 1. **Posted waits run hotter than actual waits.** The median buffer is on the order of 10–18 minutes and is larger on headliners (Seven Dwarfs Mine Train, Flight of Passage) than on high-capacity rides (Pirates, Spaceship Earth). That is a guest-communication choice: better to beat the sign than miss it.
 2. **The day has a shape.** Rope drop is the cheapest hour. Waits climb through late morning, hold through mid-afternoon, and ease after dinner. Early entry days pull demand forward.
 3. **A transparent baseline is enough to flag a weird hour.** If live standby is 20+ minutes above the historical hour/weekday median, the park is running hot.
 
-Re-run `wdw-ingest-history` and `wdw-build` on the full TouringPlans files to replace the sample with the multi-year series. The notebook and app tell the same three-finding story either way.
+Re-run `wdw-ingest-history` and `wdw-build` on newer TouringPlans files to refresh `data/processed/hourly.parquet`. The notebook and app tell the same three-finding story from that table.
 
 ## How to run
 
@@ -79,7 +79,7 @@ Tests: `pytest -q`
 
 Public demo: [https://disney-world-queue.streamlit.app](https://disney-world-queue.streamlit.app)
 
-GitHub Pages cannot host this app. Streamlit Community Cloud runs `app/streamlit_app.py` from `main`. Pushes to `main` redeploy automatically. Free apps can sleep when idle; the first visit after that is slow.
+GitHub Pages cannot host this app. Streamlit Community Cloud runs `app/streamlit_app.py` from `main` and loads the committed `data/processed/hourly.parquet` for typical-day and posted-wait pages. Raw TouringPlans CSVs and DuckDB stay gitignored. Pushes to `main` redeploy automatically. Free apps can sleep when idle; the first visit after that is slow.
 
 ## Project layout
 
@@ -87,7 +87,8 @@ GitHub Pages cannot host this app. Streamlit Community Cloud runs `app/streamlit
 src/wdw/           ingest, warehouse, features, typical-day, expected wait
 app/               Streamlit ops brief
 notebooks/         narrative analysis
-data/sample/       compact hourly parquet for offline demo
+data/processed/    committed hourly.parquet for Cloud and local history
+data/sample/       compact hourly parquet fallback
 tests/             API flatten, features, warehouse, typical-day
 ```
 
