@@ -7,6 +7,7 @@ This is not a Disney weather product.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
@@ -15,7 +16,12 @@ import pandas as pd
 from wdw.config import MAX_RETRIES, TIMEZONE
 from wdw.eastern import format_clock, hour_label
 
-WEATHER_CREDIT = "Forecast: Open-Meteo. Radar: RainViewer. Alerts: NWS for Lake Buena Vista."
+WEATHER_CREDIT = "Forecast: Open-Meteo. Radar: RainViewer and NCEP HRRR. Alerts: NWS for Lake Buena Vista."
+HRRR_META_URL = "https://mesonet.agron.iastate.edu/data/gis/images/4326/hrrr/refd_0000.json"
+HRRR_TILE_HOST = "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0"
+HRRR_FORECAST_HOURS = 2
+HRRR_STEP_MINUTES = 15
+HRRR_MAX_MINUTE = 18 * 60
 WDW_LATITUDE = 28.3852
 WDW_LONGITUDE = -81.5639
 OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
@@ -287,7 +293,8 @@ def _rainviewer_tile_template(host: str, path: str) -> str:
     if not path.startswith("/"):
         path = f"/{path}"
     # Color 2 is Universal Blue, the free RainViewer scheme. Native tiles stop at zoom 7.
-    return f"{host}{path}/256/{{z}}/{{x}}/{{y}}/2/1_1.png"
+    # 512px tiles are drawn at 256 CSS pixels for a sharper overlay.
+    return f"{host}{path}/512/{{z}}/{{x}}/{{y}}/2/1_1.png"
 
 
 def _rainviewer_unix(frame: dict[str, Any]) -> int | None:
@@ -309,25 +316,87 @@ def _radar_time_et(unix: int | None) -> str:
     return format_clock(pd.Timestamp(unix, unit="s", tz="UTC"))
 
 
-def parse_rainviewer_frames(payload: dict[str, Any], max_frames: int = 10) -> list[dict[str, str]]:
-    """Recent observed radar frames, oldest to newest, with Eastern clock labels."""
+def parse_rainviewer_frames(payload: dict[str, Any], max_frames: int | None = None) -> list[dict[str, Any]]:
+    """Observed radar frames, oldest to newest, with Eastern clock labels."""
     host = _rainviewer_host(payload)
     radar = payload.get("radar") or {}
     past = [frame for frame in (radar.get("past") or []) if frame.get("path")]
-    if not past:
-        past = [frame for frame in (radar.get("nowcast") or []) if frame.get("path")]
-    if not past:
+    nowcast = [frame for frame in (radar.get("nowcast") or []) if frame.get("path")]
+    source = past or nowcast
+    if not source:
         return []
+    selected = source if max_frames is None else source[-max_frames:]
     frames = []
-    for frame in past[-max_frames:]:
+    for frame in selected:
         unix = _rainviewer_unix(frame)
         frames.append(
             {
                 "url": _rainviewer_tile_template(host, str(frame["path"])),
                 "time_et": _radar_time_et(unix),
+                "kind": "observed",
+                "unix": unix,
             }
         )
     return frames
+
+
+def _hrrr_init_stamp(model_init_utc: str) -> str:
+    ts = pd.to_datetime(model_init_utc, utc=True, errors="coerce")
+    if pd.isna(ts):
+        return ""
+    return ts.strftime("%Y%m%d%H%M")
+
+
+def parse_hrrr_forecast_frames(
+    meta: dict[str, Any],
+    now: datetime | None = None,
+    horizon_hours: int = HRRR_FORECAST_HOURS,
+) -> list[dict[str, Any]]:
+    """NCEP HRRR simulated reflectivity from now through the next two hours."""
+    init_stamp = _hrrr_init_stamp(str(meta.get("model_init_utc") or ""))
+    if not init_stamp:
+        return []
+    init = pd.to_datetime(meta.get("model_init_utc"), utc=True, errors="coerce")
+    if pd.isna(init):
+        return []
+    clock = now or datetime.now(timezone.utc)
+    if clock.tzinfo is None:
+        clock = clock.replace(tzinfo=timezone.utc)
+    horizon = clock + timedelta(hours=horizon_hours, minutes=HRRR_STEP_MINUTES)
+    start = clock - timedelta(minutes=10)
+    frames = []
+    for minute in range(0, HRRR_MAX_MINUTE + 1, HRRR_STEP_MINUTES):
+        valid = init.to_pydatetime() + timedelta(minutes=minute)
+        if valid.tzinfo is None:
+            valid = valid.replace(tzinfo=timezone.utc)
+        if valid < start or valid > horizon:
+            continue
+        unix = int(valid.timestamp())
+        frames.append(
+            {
+                "url": f"{HRRR_TILE_HOST}/hrrr::REFD-F{minute:04d}-{init_stamp}/{{z}}/{{x}}/{{y}}.png",
+                "time_et": _radar_time_et(unix),
+                "kind": "forecast",
+                "unix": unix,
+            }
+        )
+    return frames
+
+
+def merge_radar_frames(observed: list[dict[str, Any]], forecast: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Observed RainViewer loop, then HRRR frames that start after the last observation."""
+    merged = list(observed or [])
+    last_obs = None
+    for frame in reversed(merged):
+        if frame.get("unix") is not None:
+            last_obs = int(frame["unix"])
+            break
+    for frame in forecast or []:
+        unix = frame.get("unix")
+        if last_obs is not None and unix is not None and int(unix) <= last_obs:
+            continue
+        merged.append(frame)
+    return merged
 
 
 def parse_rainviewer_tile_url(payload: dict[str, Any]) -> str | None:
@@ -336,15 +405,33 @@ def parse_rainviewer_tile_url(payload: dict[str, Any]) -> str | None:
     return frames[-1]["url"] if frames else None
 
 
-def fetch_radar_frames(client: httpx.Client | None = None) -> list[dict[str, str]]:
+def fetch_hrrr_forecast_frames(client: httpx.Client | None = None) -> list[dict[str, Any]]:
     http = client or httpx.Client(timeout=15.0)
     owns = client is None
     try:
-        response = http.get(RAINVIEWER_MAPS_URL)
+        response = http.get(HRRR_META_URL)
         response.raise_for_status()
-        return parse_rainviewer_frames(response.json())
+        return parse_hrrr_forecast_frames(response.json())
     except (httpx.HTTPError, ValueError, TypeError):
         return []
+    finally:
+        if owns:
+            http.close()
+
+
+def fetch_radar_frames(client: httpx.Client | None = None) -> list[dict[str, Any]]:
+    http = client or httpx.Client(timeout=15.0)
+    owns = client is None
+    try:
+        observed: list[dict[str, Any]] = []
+        try:
+            response = http.get(RAINVIEWER_MAPS_URL)
+            response.raise_for_status()
+            observed = parse_rainviewer_frames(response.json())
+        except (httpx.HTTPError, ValueError, TypeError):
+            observed = []
+        forecast = fetch_hrrr_forecast_frames(http)
+        return merge_radar_frames(observed, forecast)
     finally:
         if owns:
             http.close()

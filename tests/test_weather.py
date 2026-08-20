@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from wdw.weather import (
     is_thunderstorm,
+    merge_radar_frames,
     nws_event_kind,
     nws_hold_status,
     ops_implication,
+    parse_hrrr_forecast_frames,
     parse_nws_alerts,
     parse_open_meteo,
     parse_rainviewer_frames,
@@ -111,9 +113,36 @@ def test_parse_rainviewer_tile_url() -> None:
     )
     assert len(frames) == 3
     assert frames[-1]["url"].endswith("/2/1_1.png")
+    assert "/512/" in frames[0]["url"]
     assert "{z}" in frames[0]["url"]
+    assert frames[0]["kind"] == "observed"
     assert frames[0]["time_et"].endswith("ET")
     assert frames[-1]["time_et"] != frames[0]["time_et"]
+
+
+def test_hrrr_forecast_covers_next_two_hours() -> None:
+    from datetime import datetime, timezone
+
+    meta = {"model_init_utc": "2026-08-19T23:00:00Z", "forecast_minute": 0.0}
+    now = datetime(2026, 8, 20, 1, 40, tzinfo=timezone.utc)
+    frames = parse_hrrr_forecast_frames(meta, now=now, horizon_hours=2)
+    assert frames
+    assert all(frame["kind"] == "forecast" for frame in frames)
+    assert "REFD-F" in frames[0]["url"]
+    assert "{z}" in frames[0]["url"]
+    assert frames[0]["unix"] >= int(now.timestamp()) - 10 * 60
+    assert frames[-1]["unix"] <= int(now.timestamp()) + 2 * 60 * 60 + 15 * 60
+    assert frames[-1]["unix"] - frames[0]["unix"] >= 90 * 60
+
+
+def test_merge_radar_skips_forecast_already_observed() -> None:
+    observed = [{"url": "obs", "kind": "observed", "unix": 1000, "time_et": "1:00 AM ET"}]
+    forecast = [
+        {"url": "old", "kind": "forecast", "unix": 900, "time_et": "12:45 AM ET"},
+        {"url": "next", "kind": "forecast", "unix": 1900, "time_et": "1:15 AM ET"},
+    ]
+    merged = merge_radar_frames(observed, forecast)
+    assert [frame["url"] for frame in merged] == ["obs", "next"]
 
 
 def test_parse_nws_alerts() -> None:

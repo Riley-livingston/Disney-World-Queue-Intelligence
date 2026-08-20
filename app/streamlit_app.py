@@ -52,7 +52,7 @@ WDW_LATITUDE = _weather.WDW_LATITUDE
 WDW_LONGITUDE = _weather.WDW_LONGITUDE
 WEATHER_CREDIT = _weather.WEATHER_CREDIT
 WeatherError = _weather.WeatherError
-fetch_radar_frames = _weather.fetch_radar_frames
+fetch_radar_frames = getattr(_weather, "fetch_radar_frames", lambda *_args, **_kwargs: [])
 fetch_wdw_weather = _weather.fetch_wdw_weather
 
 NAVY = "#12264A"
@@ -478,73 +478,185 @@ def _radar_frame_payload(frames: list | None) -> list[dict[str, str]]:
     payload = []
     for item in frames or []:
         if isinstance(item, str) and item:
-            payload.append({"url": item, "time_et": ""})
+            payload.append({"url": item, "time_et": "", "kind": "observed"})
         elif isinstance(item, dict) and item.get("url"):
-            payload.append({"url": str(item["url"]), "time_et": str(item.get("time_et") or "")})
+            kind = str(item.get("kind") or "observed")
+            if kind not in {"observed", "forecast"}:
+                kind = "observed"
+            payload.append(
+                {
+                    "url": str(item["url"]),
+                    "time_et": str(item.get("time_et") or ""),
+                    "kind": kind,
+                }
+            )
     return payload
 
 
 def render_radar_map(frames: list | None = None) -> None:
-    """Animated RainViewer overlay zoomed to the four parks."""
+    """Animated radar over the four parks: RainViewer observed plus HRRR through +2 hours."""
     payload = _radar_frame_payload(frames)
     if not payload:
-        st.warning("RainViewer radar is unavailable this hour.")
+        st.warning("Radar is unavailable this hour.")
         return
     parks_js = json.dumps(PARK_POINTS)
     frames_js = json.dumps(payload)
-    html_map = f"""
+    has_forecast = any(frame["kind"] == "forecast" for frame in payload)
+    html_map = """
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-    <div style="position:relative;height:480px;border-radius:10px;overflow:hidden;border:1px solid #EDE4D4;">
-      <div id="wdw-radar" style="height:480px;"></div>
-      <div id="wdw-radar-time" style="position:absolute;top:12px;left:12px;z-index:1000;background:#12264A;color:#F7F1E6;padding:8px 12px;border-radius:8px;font:600 14px/1.3 system-ui,sans-serif;letter-spacing:0.03em;border:1px solid #F0C14A;"></div>
+    <style>
+      #wdw-radar-wrap { position: relative; height: 500px; border-radius: 14px; overflow: hidden; border: 1px solid #EDE4D4; background: #0B1220; }
+      #wdw-radar { height: 500px; background: #0B1220; }
+      #wdw-radar-chrome {
+        position: absolute; top: 14px; left: 14px; z-index: 1000;
+        display: flex; align-items: center; gap: 8px;
+        padding: 8px 12px 8px 14px;
+        border-radius: 999px;
+        background: rgba(11, 18, 32, 0.82);
+        border: 1px solid rgba(240, 193, 74, 0.55);
+        backdrop-filter: blur(10px);
+        color: #F7F1E6;
+        font: 600 13px/1.2 system-ui, sans-serif;
+        letter-spacing: 0.02em;
+      }
+      #wdw-radar-kind {
+        font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+        padding: 3px 8px; border-radius: 999px; background: #F0C14A; color: #12264A;
+      }
+      #wdw-radar-kind.is-forecast { background: #E87722; color: #F7F1E6; }
+      #wdw-radar-progress {
+        position: absolute; left: 18px; right: 18px; bottom: 16px; z-index: 1000;
+        height: 4px; border-radius: 99px; background: rgba(247, 241, 230, 0.18); overflow: hidden;
+      }
+      #wdw-radar-progress-fill {
+        height: 100%; width: 0%;
+        background: linear-gradient(90deg, #F0C14A, #E87722);
+        transition: width 0.35s linear;
+      }
+      .radar-fade { transition: opacity 0.55s ease; }
+    </style>
+    <div id="wdw-radar-wrap">
+      <div id="wdw-radar"></div>
+      <div id="wdw-radar-chrome">
+        <span id="wdw-radar-time"></span>
+        <span id="wdw-radar-kind">Observed</span>
+      </div>
+      <div id="wdw-radar-progress"><div id="wdw-radar-progress-fill"></div></div>
     </div>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-      const frames = {frames_js};
-      const parks = {parks_js};
+      const frames = __FRAMES__;
+      const parks = __PARKS__;
       const stamp = document.getElementById("wdw-radar-time");
-      const map = L.map("wdw-radar", {{ maxZoom: 12 }}).setView([{WDW_LATITUDE}, {WDW_LONGITUDE}], 11);
-      L.tileLayer("https://{{s}}.basemaps.cartocdn.com/light_all/{{z}}/{{x}}/{{y}}{{r}}.png", {{
-        attribution: "&copy; OpenStreetMap &copy; CARTO",
+      const kindEl = document.getElementById("wdw-radar-kind");
+      const fill = document.getElementById("wdw-radar-progress-fill");
+      const map = L.map("wdw-radar", { maxZoom: 12, zoomControl: false, attributionControl: false })
+        .setView([__LAT__, __LON__], 11);
+      L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
         subdomains: "abcd",
         maxZoom: 12
-      }}).addTo(map);
-      let radar = L.tileLayer(frames[frames.length - 1].url, {{
-        opacity: 0.8,
-        tileSize: 256,
-        maxNativeZoom: 7,
-        maxZoom: 12
-      }}).addTo(map);
-      parks.forEach((park) => {{
-        L.circleMarker([park.lat, park.lon], {{
-          radius: 7,
-          color: "#12264A",
-          weight: 2,
+      }).addTo(map);
+      parks.forEach((park) => {
+        L.circleMarker([park.lat, park.lon], {
+          radius: 5,
+          color: "#F0C14A",
+          weight: 1.5,
           fillColor: "#F0C14A",
-          fillOpacity: 1
-        }}).addTo(map).bindTooltip(park.name, {{ permanent: true, direction: "top", offset: [0, -8] }});
-      }});
-      function setFrame(i) {{
-        radar.setUrl(frames[i].url);
-        stamp.textContent = frames[i].time_et || "";
-      }}
-      let index = frames.length - 1;
-      setFrame(index);
-      setTimeout(() => map.invalidateSize(), 200);
-      if (frames.length > 1) {{
-        setInterval(() => {{
+          fillOpacity: 0.95
+        }).addTo(map).bindTooltip(park.name, { direction: "top", offset: [0, -8], opacity: 0.92 });
+      });
+      const cache = {};
+      let currentLayer = null;
+      let index = 0;
+
+      function layerFor(frame) {
+        const forecast = frame.kind === "forecast";
+        return L.tileLayer(frame.url, {
+          opacity: 0,
+          tileSize: 256,
+          maxNativeZoom: forecast ? 9 : 7,
+          maxZoom: 12,
+          className: "radar-fade"
+        });
+      }
+
+      function paintChrome(i) {
+        const frame = frames[i];
+        stamp.textContent = frame.time_et || "";
+        const forecast = frame.kind === "forecast";
+        kindEl.textContent = forecast ? "Forecast" : "Observed";
+        kindEl.classList.toggle("is-forecast", forecast);
+        fill.style.width = ((i + 1) / frames.length * 100).toFixed(1) + "%";
+      }
+
+      function holdMs(i) {
+        const frame = frames[i];
+        const next = frames[(i + 1) % frames.length];
+        if (frame.kind !== next.kind) return 1100;
+        if (i === frames.length - 1) return 1200;
+        return 720;
+      }
+
+      function showFrame(i, then) {
+        paintChrome(i);
+        const reveal = (layer) => {
+          layer.setOpacity(0.78);
+          if (currentLayer && currentLayer !== layer) currentLayer.setOpacity(0);
+          currentLayer = layer;
+          if (then) then();
+        };
+        if (cache[i] && cache[i]._loaded) {
+          reveal(cache[i]);
+          return;
+        }
+        const layer = cache[i] || layerFor(frames[i]);
+        cache[i] = layer;
+        if (!map.hasLayer(layer)) layer.addTo(map);
+        let shown = false;
+        const done = () => { if (!shown) { shown = true; reveal(layer); } };
+        layer.once("load", done);
+        setTimeout(done, 900);
+      }
+
+      function preload(i) {
+        if (cache[i]) return;
+        const layer = layerFor(frames[i]);
+        cache[i] = layer;
+        layer.addTo(map);
+      }
+
+      function queueNext() {
+        preload((index + 1) % frames.length);
+        setTimeout(() => {
           index = (index + 1) % frames.length;
-          setFrame(index);
-        }}, 450);
-      }}
+          showFrame(index, frames.length > 1 ? queueNext : null);
+        }, holdMs(index));
+      }
+
+      showFrame(0, frames.length > 1 ? queueNext : null);
+      preload(1);
+      setTimeout(() => map.invalidateSize(), 200);
     </script>
     """
-    st.components.v1.html(html_map, height=500)
-    st.caption(
-        "RainViewer observed radar, zoomed to Magic Kingdom, EPCOT, Hollywood Studios, and Animal Kingdom. "
-        "Clock is Eastern Time for each frame. The loop is about the last hour. Gold dots mark the parks. "
-        f"Not a Disney weather product. {WEATHER_CREDIT}"
+    html_map = (
+        html_map.replace("__FRAMES__", frames_js)
+        .replace("__PARKS__", parks_js)
+        .replace("__LAT__", str(WDW_LATITUDE))
+        .replace("__LON__", str(WDW_LONGITUDE))
     )
+    st.components.v1.html(html_map, height=520)
+    if has_forecast:
+        st.caption(
+            "Observed loop is RainViewer. The next two hours are NCEP HRRR simulated reflectivity "
+            "from Iowa Environmental Mesonet, valid times in Eastern. Gold dots mark the parks. "
+            f"Not a Disney weather product. {WEATHER_CREDIT}"
+        )
+    else:
+        st.caption(
+            "RainViewer observed radar over Magic Kingdom, EPCOT, Hollywood Studios, and Animal Kingdom. "
+            "Clock is Eastern Time. Forecast radar was unavailable this hour. "
+            f"Not a Disney weather product. {WEATHER_CREDIT}"
+        )
 
 
 @st.dialog("Resort-area radar", width="large")
