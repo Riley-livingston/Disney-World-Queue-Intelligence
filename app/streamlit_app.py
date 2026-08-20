@@ -493,9 +493,16 @@ def _radar_frame_payload(frames: list | None) -> list[dict[str, str]]:
     return payload
 
 
-def render_radar_map(frames: list | None = None) -> None:
-    """Animated radar over the four parks: RainViewer observed plus HRRR through +2 hours."""
+def _radar_now_and_forecast(frames: list | None) -> list[dict[str, str]]:
     payload = _radar_frame_payload(frames)
+    observed = [row for row in payload if row["kind"] != "forecast"]
+    forecast = [row for row in payload if row["kind"] == "forecast"]
+    return (observed[-1:] if observed else []) + forecast
+
+
+def render_radar_map(frames: list | None = None) -> None:
+    """Current RainViewer frame plus HRRR through the next two hours."""
+    payload = _radar_now_and_forecast(frames)
     if not payload:
         st.warning("Radar is unavailable this hour.")
         return
@@ -539,7 +546,7 @@ def render_radar_map(frames: list | None = None) -> None:
       <div id="wdw-radar"></div>
       <div id="wdw-radar-chrome">
         <span id="wdw-radar-time"></span>
-        <span id="wdw-radar-kind">Observed</span>
+        <span id="wdw-radar-kind">Now</span>
       </div>
       <div id="wdw-radar-progress"><div id="wdw-radar-progress-fill"></div></div>
     </div>
@@ -584,7 +591,7 @@ def render_radar_map(frames: list | None = None) -> None:
         const frame = frames[i];
         stamp.textContent = frame.time_et || "";
         const forecast = frame.kind === "forecast";
-        kindEl.textContent = forecast ? "Forecast" : "Observed";
+        kindEl.textContent = forecast ? "Forecast" : "Now";
         kindEl.classList.toggle("is-forecast", forecast);
         fill.style.width = ((i + 1) / frames.length * 100).toFixed(1) + "%";
       }
@@ -647,13 +654,13 @@ def render_radar_map(frames: list | None = None) -> None:
     st.components.v1.html(html_map, height=520)
     if has_forecast:
         st.caption(
-            "Observed loop is RainViewer. The next two hours are NCEP HRRR simulated reflectivity "
+            "Now is the latest RainViewer frame. The next two hours are NCEP HRRR simulated reflectivity "
             "from Iowa Environmental Mesonet, valid times in Eastern. Gold dots mark the parks. "
             f"Not a Disney weather product. {WEATHER_CREDIT}"
         )
     else:
         st.caption(
-            "RainViewer observed radar over Magic Kingdom, EPCOT, Hollywood Studios, and Animal Kingdom. "
+            "Current RainViewer radar over Magic Kingdom, EPCOT, Hollywood Studios, and Animal Kingdom. "
             "Clock is Eastern Time. Forecast radar was unavailable this hour. "
             f"Not a Disney weather product. {WEATHER_CREDIT}"
         )

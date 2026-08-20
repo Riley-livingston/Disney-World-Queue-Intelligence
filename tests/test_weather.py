@@ -130,13 +130,16 @@ def test_hrrr_forecast_covers_next_two_hours() -> None:
     assert all(frame["kind"] == "forecast" for frame in frames)
     assert "REFD-F" in frames[0]["url"]
     assert "{z}" in frames[0]["url"]
-    assert frames[0]["unix"] >= int(now.timestamp()) - 10 * 60
+    assert frames[0]["unix"] >= int(now.timestamp())
     assert frames[-1]["unix"] <= int(now.timestamp()) + 2 * 60 * 60 + 15 * 60
     assert frames[-1]["unix"] - frames[0]["unix"] >= 90 * 60
 
 
 def test_merge_radar_skips_forecast_already_observed() -> None:
-    observed = [{"url": "obs", "kind": "observed", "unix": 1000, "time_et": "1:00 AM ET"}]
+    observed = [
+        {"url": "old-obs", "kind": "observed", "unix": 800, "time_et": "12:40 AM ET"},
+        {"url": "obs", "kind": "observed", "unix": 1000, "time_et": "1:00 AM ET"},
+    ]
     forecast = [
         {"url": "old", "kind": "forecast", "unix": 900, "time_et": "12:45 AM ET"},
         {"url": "next", "kind": "forecast", "unix": 1900, "time_et": "1:15 AM ET"},

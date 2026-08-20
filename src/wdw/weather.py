@@ -363,7 +363,7 @@ def parse_hrrr_forecast_frames(
     if clock.tzinfo is None:
         clock = clock.replace(tzinfo=timezone.utc)
     horizon = clock + timedelta(hours=horizon_hours, minutes=HRRR_STEP_MINUTES)
-    start = clock - timedelta(minutes=10)
+    start = clock
     frames = []
     for minute in range(0, HRRR_MAX_MINUTE + 1, HRRR_STEP_MINUTES):
         valid = init.to_pydatetime() + timedelta(minutes=minute)
@@ -384,16 +384,13 @@ def parse_hrrr_forecast_frames(
 
 
 def merge_radar_frames(observed: list[dict[str, Any]], forecast: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Observed RainViewer loop, then HRRR frames that start after the last observation."""
-    merged = list(observed or [])
-    last_obs = None
-    for frame in reversed(merged):
-        if frame.get("unix") is not None:
-            last_obs = int(frame["unix"])
-            break
+    """Current RainViewer frame, then HRRR frames after that through the next two hours."""
+    current = list(observed[-1:]) if observed else []
+    last_obs = current[0].get("unix") if current else None
+    merged = list(current)
     for frame in forecast or []:
         unix = frame.get("unix")
-        if last_obs is not None and unix is not None and int(unix) <= last_obs:
+        if last_obs is not None and unix is not None and int(unix) <= int(last_obs):
             continue
         merged.append(frame)
     return merged
@@ -427,7 +424,7 @@ def fetch_radar_frames(client: httpx.Client | None = None) -> list[dict[str, Any
         try:
             response = http.get(RAINVIEWER_MAPS_URL)
             response.raise_for_status()
-            observed = parse_rainviewer_frames(response.json())
+            observed = parse_rainviewer_frames(response.json(), max_frames=1)
         except (httpx.HTTPError, ValueError, TypeError):
             observed = []
         forecast = fetch_hrrr_forecast_frames(http)
